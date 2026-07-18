@@ -1,4 +1,56 @@
 const uploadForm = document.querySelector("#uploadForm");
+const matcherStatus = document.querySelector('#matcherStatus');
+const matcherStatusText = document.querySelector('#matcherStatusText');
+let matcherOnline = false;
+let statusRequest = null;
+
+function applyMatcherAvailability(online, message = '') {
+  matcherOnline = online;
+  const fileInput = document.querySelector('#patternFile');
+  const matchButton = document.querySelector('#matchButton');
+  const availability = document.querySelector('#matcherAvailability');
+
+  if (fileInput) fileInput.disabled = !online;
+  if (matchButton) matchButton.disabled = !online;
+  if (availability) {
+    availability.hidden = online;
+    availability.textContent = message || '图案识别服务当前不在线，暂时无法上传和匹配。';
+  }
+}
+
+async function refreshMatcherStatus() {
+  if (statusRequest) return statusRequest;
+  statusRequest = (async () => {
+    try {
+      const response = await fetch('/api/matcher-status', { cache: 'no-store' });
+      if (!response.ok) throw new Error('status request failed');
+      const payload = await response.json();
+      matcherStatus.dataset.status = payload.online ? 'online' : 'offline';
+      matcherStatusText.textContent = payload.online ? '识别服务在线' : '识别服务离线';
+      matcherStatus.title = payload.workerId ? `节点：${payload.workerId}` : payload.message;
+      applyMatcherAvailability(payload.online, payload.message);
+      return payload.online;
+    } catch (_error) {
+      matcherStatus.dataset.status = 'offline';
+      matcherStatusText.textContent = '识别服务离线';
+      matcherStatus.title = '无法获取图案匹配服务状态';
+      applyMatcherAvailability(false, '无法连接图案识别服务，暂时无法上传和匹配。');
+      return false;
+    } finally {
+      statusRequest = null;
+    }
+  })();
+  return statusRequest;
+}
+
+if (matcherStatus && matcherStatusText) {
+  refreshMatcherStatus();
+  window.setInterval(refreshMatcherStatus, 5000);
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden) refreshMatcherStatus();
+  });
+}
+
 const patternModal = document.querySelector('#patternModal');
 
 if (patternModal) {
@@ -99,6 +151,10 @@ if (uploadForm) {
   uploadForm.addEventListener("submit", async (event) => {
     event.preventDefault();
     if (!fileInput.files.length) return;
+
+    // 上传前强制刷新一次状态，避免使用定时轮询留下的旧在线结果。
+    const serviceOnline = await refreshMatcherStatus();
+    if (!serviceOnline || !matcherOnline) return;
 
     uploadFileName = fileInput.files[0].name;
     uploadForm.hidden = true;

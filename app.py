@@ -2,6 +2,10 @@ from __future__ import annotations
 
 import json
 import re
+import socket
+import subprocess
+import sys
+import time
 import uuid
 from datetime import datetime
 from pathlib import Path
@@ -17,6 +21,9 @@ UPLOAD_DIR = BASE_DIR / "uploads"
 DATA_DIR = BASE_DIR / "data"
 THUMBNAIL_DIR = BASE_DIR / ".cache" / "thumbnails"
 WORK_ORDERS_FILE = DATA_DIR / "design_work_orders.jsonl"
+MATCHER_STATE_FILE = BASE_DIR / ".runtime" / "matcher_status.json"
+MATCHER_REQUEST_DIR = BASE_DIR / ".runtime" / "match_requests"
+MATCHER_STATUS_MAX_AGE_SECONDS = 12
 
 ALLOWED_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp", ".bmp"}
 MAX_UPLOAD_SIZE = 12 * 1024 * 1024
@@ -136,6 +143,32 @@ def index():
     )
 
 
+def current_matcher_status() -> dict:
+    status = {"online": False, "workerId": None, "message": "图案匹配服务离线"}
+    try:
+        state = json.loads(MATCHER_STATE_FILE.read_text(encoding="utf-8"))
+        heartbeat_age = time.time() - float(state.get("updatedAt", 0))
+        online = bool(state.get("online")) and heartbeat_age <= MATCHER_STATUS_MAX_AGE_SECONDS
+        status = {
+            "online": online,
+            "workerId": state.get("workerId") if online else None,
+            "message": "图案匹配服务在线" if online else "图案匹配服务离线",
+        }
+    except (FileNotFoundError, OSError, ValueError, TypeError, json.JSONDecodeError):
+        pass
+
+    return status
+
+
+@app.get("/api/matcher-status")
+def matcher_status():
+    status = current_matcher_status()
+
+    response = jsonify(status)
+    response.headers["Cache-Control"] = "no-store"
+    return response
+
+
 @app.get("/pattern-images/<path:filename>")
 def pattern_image(filename: str):
     safe_name = Path(filename).name
@@ -157,6 +190,9 @@ def pattern_image(filename: str):
 
 @app.post("/api/match")
 def match_pattern():
+    if not current_matcher_status()["online"]:
+        return jsonify({"ok": False, "message": "图案识别服务当前不在线，暂时无法匹配。"}), 503
+
     uploaded = request.files.get("pattern")
     if uploaded is None or not uploaded.filename:
         return jsonify({"ok": False, "message": "请选择需要识别的图案文件。"}), 400
@@ -169,6 +205,20 @@ def match_pattern():
     UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
     stored_name = f"{uuid.uuid4().hex}{extension}"
     uploaded.save(UPLOAD_DIR / secure_filename(stored_name))
+
+    request_id = uuid.uuid4().hex
+    MATCHER_REQUEST_DIR.mkdir(parents=True, exist_ok=True)
+    match_request = {
+        "type": "match_request",
+        "requestId": request_id,
+        "fileName": original_name,
+        "message": "hello world",
+        "createdAt": datetime.now().astimezone().isoformat(timespec="seconds"),
+    }
+    request_file = MATCHER_REQUEST_DIR / f"{request_id}.json"
+    temporary_file = request_file.with_suffix(".tmp")
+    temporary_file.write_text(json.dumps(match_request, ensure_ascii=False), encoding="utf-8")
+    temporary_file.replace(request_file)
 
     library_files = pattern_files()
     library_by_name = {path.name.casefold(): path for path in library_files}
@@ -250,5 +300,38 @@ def upload_too_large(_error):
     return jsonify({"ok": False, "message": "图片不能超过 12 MB。"}), 413
 
 
+def start_local_match_gateway() -> subprocess.Popen | None:
+    gateway_script = BASE_DIR / 'dev_match_gateway.py'
+    if not gateway_script.exists():
+        print('[dev] dev_match_gateway.py not found; matcher gateway was not started.', flush=True)
+        return None
+
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as connection:
+        connection.settimeout(0.2)
+        if connection.connect_ex(('127.0.0.1', 8765)) == 0:
+            print('[dev] matcher gateway already running on ws://127.0.0.1:8765', flush=True)
+            return None
+
+    process = subprocess.Popen([sys.executable, str(gateway_script)], cwd=BASE_DIR)
+    print(f'[dev] matcher gateway started automatically (pid={process.pid})', flush=True)
+    return process
+
+
+def stop_local_match_gateway(process: subprocess.Popen | None) -> None:
+    if process is None or process.poll() is not None:
+        return
+    process.terminate()
+    try:
+        process.wait(timeout=3)
+    except subprocess.TimeoutExpired:
+        process.kill()
+        process.wait(timeout=2)
+    print('[dev] matcher gateway stopped.', flush=True)
+
+
 if __name__ == "__main__":
-    app.run(host="127.0.0.1", port=5000, debug=True)
+    local_gateway_process = start_local_match_gateway()
+    try:
+        app.run(host="127.0.0.1", port=5000, debug=True, use_reloader=False)
+    finally:
+        stop_local_match_gateway(local_gateway_process)

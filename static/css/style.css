@@ -45,6 +45,18 @@ a { color: inherit; }
 .brand strong { font-family: var(--display); font-size: 20px; letter-spacing: 0.18em; }
 .brand small { margin-top: 2px; font: 9px/1.2 Georgia, serif; letter-spacing: 0.19em; }
 .header-action { padding-bottom: 5px; border-bottom: 1px solid currentColor; text-decoration: none; font-size: 14px; letter-spacing: 0.12em; }
+.header-tools { display: flex; align-items: center; gap: 24px; }
+.matcher-status { display: inline-flex; align-items: center; gap: 8px; color: #6f685f; font-size: 11px; letter-spacing: 0.08em; white-space: nowrap; }
+.matcher-status-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: #c18c3e;
+  box-shadow: 0 0 0 4px rgba(193, 140, 62, 0.12);
+}
+.matcher-status[data-status=online] .matcher-status-dot { background: #4f875f; box-shadow: 0 0 0 4px rgba(79, 135, 95, 0.14); }
+.matcher-status[data-status=offline] .matcher-status-dot { background: #a9472d; box-shadow: 0 0 0 4px rgba(169, 71, 45, 0.12); }
+.matcher-status[data-status=checking] .matcher-status-dot { animation: status-pulse 1.4s ease-in-out infinite; }
 
 .hero {
   position: relative; display: grid; grid-template-columns: 0.9fr 1.1fr; min-height: 720px;
@@ -103,8 +115,11 @@ a { color: inherit; }
 .process-notes { display: flex; gap: 26px; margin-top: 70px; padding-top: 22px; border-top: 1px solid rgba(255,255,255,.18); color: #aaa196; font-size: 11px; letter-spacing: .1em; }
 .finder-panel { display: grid; place-items: center; min-height: 720px; padding: 70px clamp(24px, 6vw, 90px); color: var(--ink); background: var(--paper-deep); }
 .upload-form, .progress-view, .result-view { width: min(100%, 560px); }
+.matcher-availability { margin: 0 0 14px; padding: 12px 15px; color: #7f2f20; border: 1px solid rgba(169,71,45,.3); background: rgba(169,71,45,.08); font-size: 12px; line-height: 1.6; text-align: center; }
 .drop-zone { display: grid; place-items: center; min-height: 330px; padding: 38px; text-align: center; border: 1px dashed #887e70; background: rgba(255,250,241,.55); cursor: pointer; transition: background 200ms, border-color 200ms; }
 .drop-zone:hover { background: var(--ivory); border-color: var(--rust); }
+.drop-zone:has(input:disabled) { opacity: .58; cursor: not-allowed; border-color: #a9a095; background: rgba(238,232,222,.7); }
+.drop-zone:has(input:disabled):hover { border-color: #a9a095; background: rgba(238,232,222,.7); }
 .drop-zone input { position: absolute; width: 1px; height: 1px; opacity: 0; }
 .upload-icon { display: grid; place-items: center; width: 74px; height: 74px; margin-bottom: 20px; color: var(--rust); border: 1px solid var(--rust); border-radius: 50%; font: 300 38px/1 Georgia, serif; }
 .drop-zone strong { font: 400 25px var(--display); }
@@ -112,7 +127,7 @@ a { color: inherit; }
 .primary-button, .secondary-button, .reset-button { border: 0; cursor: pointer; transition: transform 180ms, background 180ms; }
 .primary-button { display: block; width: 100%; margin-top: 16px; padding: 18px 24px; color: white; background: var(--rust); letter-spacing: .1em; }
 .primary-button:hover { background: var(--rust-dark); transform: translateY(-2px); }
-.primary-button:disabled { opacity: .55; cursor: wait; }
+.primary-button:disabled { opacity: .55; cursor: not-allowed; transform: none; }
 .primary-button.compact, .secondary-button.compact { width: auto; margin: 0; padding: 14px 18px; }
 .secondary-button { padding: 14px 18px; background: transparent; border: 1px solid var(--line); }
 .secondary-button:hover { border-color: var(--rust); color: var(--rust); }
@@ -158,6 +173,7 @@ a { color: inherit; }
 .reveal-card { animation: reveal 700ms both; animation-timeline: view(); animation-range: entry 5% cover 25%; }
 @keyframes reveal { from { opacity: 0; transform: translateY(24px); } to { opacity: 1; transform: translateY(0); } }
 @keyframes spin { to { transform: rotate(360deg); } }
+@keyframes status-pulse { 50% { opacity: 0.38; transform: scale(0.78); } }
 
 @media (max-width: 900px) {
   .hero { grid-template-columns: 1fr; min-height: auto; padding-bottom: 130px; }
@@ -172,6 +188,8 @@ a { color: inherit; }
 @media (max-width: 600px) {
   .site-header { min-height: 72px; padding: 13px 18px; }
   .header-action { font-size: 12px; }
+  .header-tools { gap: 12px; }
+  .matcher-status { font-size: 10px; }
   .brand-mark { width: 39px; height: 39px; }
   .brand strong { font-size: 17px; }
   .hero { padding: 52px 20px 135px; }

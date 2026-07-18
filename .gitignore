@@ -8,3 +8,7 @@ __pycache__/
 .cache/
 uploads/
 data/design_work_orders.jsonl
+.runtime/
+dev_match_gateway.py
+mock_match_worker.py
+dev-requirements.txt

@@ -10,11 +10,12 @@ COPY requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt
 
 COPY app.py ./
+COPY match_gateway.py ./
 COPY templates ./templates
 COPY static ./static
 COPY pattern ./pattern
 
-RUN mkdir -p /app/data /app/uploads /app/.cache/thumbnails \
+RUN mkdir -p /app/data /app/uploads /app/.cache/thumbnails /app/.runtime/match_requests \
     && useradd --create-home --uid 10001 appuser \
     && chown -R appuser:appuser /app
 

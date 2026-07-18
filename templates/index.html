@@ -64,13 +64,14 @@
 
   <div class="finder-panel" id="finderPanel">
     <form id="uploadForm" class="upload-form">
+      <p class="matcher-availability" id="matcherAvailability" role="alert">正在检查图案识别服务状态…</p>
       <label class="drop-zone" id="dropZone" for="patternFile">
-        <input id="patternFile" name="pattern" type="file" accept="image/png,image/jpeg,image/webp,image/bmp" required>
+        <input id="patternFile" name="pattern" type="file" accept="image/png,image/jpeg,image/webp,image/bmp" required disabled>
         <span class="upload-icon">＋</span>
         <strong id="fileLabel">选择或拖入客户参考图</strong>
         <small>支持 PNG / JPG / WEBP / BMP，最大 12 MB</small>
       </label>
-      <button class="primary-button" id="matchButton" type="submit">开始识别图案</button>
+      <button class="primary-button" id="matchButton" type="submit" disabled>开始识别图案</button>
     </form>
 
     <div class="progress-view" id="progressView" hidden aria-live="polite">
@@ -140,8 +141,4 @@
     </div>
   </article>
 </div>
-{% endblock %}
-
-{% block scripts %}
-<script src="{{ url_for('static', filename='js/app.js') }}" defer></script>
 {% endblock %}

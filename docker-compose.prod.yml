@@ -1,0 +1,33 @@
+services:
+  web:
+    image: ${LACE_IMAGE:-w0ngzz/lace-pattern-workbench:latest}
+    container_name: lace-pattern-web
+    restart: unless-stopped
+    volumes:
+      - lace-pattern-runtime:/app/.runtime
+      - lace-pattern-data:/app/data
+      - lace-pattern-uploads:/app/uploads
+    networks:
+      - 1panel-network
+
+  gateway:
+    image: ${LACE_IMAGE:-w0ngzz/lace-pattern-workbench:latest}
+    container_name: lace-pattern-gateway
+    restart: unless-stopped
+    command: ["python", "match_gateway.py"]
+    environment:
+      MATCHER_TOKEN: ${MATCHER_TOKEN:?MATCHER_TOKEN must be set}
+    volumes:
+      - lace-pattern-runtime:/app/.runtime
+      - lace-pattern-uploads:/app/uploads:ro
+    networks:
+      - 1panel-network
+
+networks:
+  1panel-network:
+    external: true
+
+volumes:
+  lace-pattern-runtime:
+  lace-pattern-data:
+  lace-pattern-uploads:

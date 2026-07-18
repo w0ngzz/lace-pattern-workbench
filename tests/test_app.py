@@ -1,6 +1,7 @@
 import io
 import json
 import tempfile
+import time
 import unittest
 from pathlib import Path
 
@@ -19,6 +20,13 @@ class LaceWebsiteTests(unittest.TestCase):
         self.data_dir = root / "data"
         self.thumbnail_dir = root / "thumbnails"
         self.work_orders_file = self.data_dir / "design_work_orders.jsonl"
+        self.matcher_state_file = root / "runtime" / "matcher_status.json"
+        self.matcher_request_dir = root / "runtime" / "match_requests"
+        self.matcher_state_file.parent.mkdir()
+        self.matcher_state_file.write_text(
+            json.dumps({"online": True, "workerId": "test-worker", "updatedAt": time.time()}),
+            encoding="utf-8",
+        )
 
         for index in range(1, 12):
             Image.new("RGB", (40, 40), (index * 10, 80, 100)).save(self.pattern_dir / f"{index}.png")
@@ -29,12 +37,16 @@ class LaceWebsiteTests(unittest.TestCase):
             lace_app.DATA_DIR,
             lace_app.THUMBNAIL_DIR,
             lace_app.WORK_ORDERS_FILE,
+            lace_app.MATCHER_STATE_FILE,
+            lace_app.MATCHER_REQUEST_DIR,
         )
         lace_app.PATTERN_DIR = self.pattern_dir
         lace_app.UPLOAD_DIR = self.upload_dir
         lace_app.DATA_DIR = self.data_dir
         lace_app.THUMBNAIL_DIR = self.thumbnail_dir
         lace_app.WORK_ORDERS_FILE = self.work_orders_file
+        lace_app.MATCHER_STATE_FILE = self.matcher_state_file
+        lace_app.MATCHER_REQUEST_DIR = self.matcher_request_dir
         lace_app.app.config.update(TESTING=True)
         self.client = lace_app.app.test_client()
 
@@ -45,6 +57,8 @@ class LaceWebsiteTests(unittest.TestCase):
             lace_app.DATA_DIR,
             lace_app.THUMBNAIL_DIR,
             lace_app.WORK_ORDERS_FILE,
+            lace_app.MATCHER_STATE_FILE,
+            lace_app.MATCHER_REQUEST_DIR,
         ) = self.original_paths
         self.temp_dir.cleanup()
 
@@ -79,6 +93,20 @@ class LaceWebsiteTests(unittest.TestCase):
         self.assertEqual(matched.get_json()["message"], "匹配成功")
         self.assertFalse(missing.get_json()["matched"])
         self.assertEqual(missing.get_json()["message"], "暂未找到您想要的款式")
+        requests = list(self.matcher_request_dir.glob("*.json"))
+        self.assertEqual(len(requests), 2)
+        self.assertTrue(all(json.loads(path.read_text(encoding="utf-8"))["type"] == "match_request" for path in requests))
+
+    def test_matching_is_rejected_when_worker_is_offline(self):
+        self.matcher_state_file.write_text(
+            json.dumps({"online": False, "workerId": None, "updatedAt": time.time()}),
+            encoding="utf-8",
+        )
+        response = self.upload("1.png")
+        self.assertEqual(response.status_code, 503)
+        self.assertFalse(response.get_json()["ok"])
+        self.assertIn("不在线", response.get_json()["message"])
+        self.assertFalse(self.upload_dir.exists())
 
     def test_thumbnail_route_returns_webp(self):
         response = self.client.get("/pattern-images/1.png")
