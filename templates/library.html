@@ -188,8 +188,8 @@
     {% else %}
     <div class="library-empty-state">
       <span>PRIVATE MATERIAL ARCHIVE</span>
-      <h2>素材库尚未挂载</h2>
-      <p>请挂载基础素材目录，或通过 <code>POST /api/library/materials</code> 上传素材数据。</p>
+      <h2>素材库暂无内容</h2>
+      <p>请在项目的 <code>pattern/library</code> 目录中补充基础素材数据与图片。</p>
       <a href="{{ url_for('index') }}">返回首页</a>
     </div>
     {% endif %}

@@ -55,40 +55,6 @@ docker run -d --name lace-pattern -p 5000:5000 \
 - 成衣预览：目前是占位页面。
 - 设计工单：登记客户姓名与联系方式后，按行保存到 `data/design_work_orders.jsonl`。
 
-## 素材上传接口
-
-接口地址为 `POST /api/library/materials`，使用环境变量 `MATERIAL_UPLOAD_TOKEN` 配置访问令牌，并通过请求头 `Authorization: Bearer <token>` 鉴权。
-
-支持 `multipart/form-data`，字段如下：
-
-- `styleId`：素材数字编号，必填。
-- `code`：款式编号，例如 `LACE-081`。
-- `category`：分类或花纹类型。
-- `width`：幅宽，例如 `150cm`。
-- `material`：材质或成分。
-- `usage`：推荐用途。
-- `color`：颜色。
-- `description`：素材说明。
-- `image`：素材原图，支持 PNG、JPG、WEBP、BMP。
-
-上传示例：
-
-```bash
-curl -X POST "https://rbcc.302922.xyz/api/library/materials" \
-  -H "Authorization: Bearer YOUR_MATERIAL_UPLOAD_TOKEN" \
-  -F "styleId=81" \
-  -F "code=LACE-081" \
-  -F "category=植物花卉纹" \
-  -F "width=150cm" \
-  -F "material=锦纶混纺" \
-  -F "usage=礼服" \
-  -F "color=象牙白" \
-  -F "description=适合轻礼服罩层" \
-  -F "image=@81.png"
-```
-
-接口也接受不带图片的 JSON 请求，用于新增或更新素材元数据。上传记录保存在 `data/material_catalog.db`，图片保存在 `data/material_library`，两者由现有 Docker 数据卷持久化。
-
 ## 测试匹配
 
 将测试图片放入 `pattern/library/pic/originals`，上传同名图片会返回匹配成功；其他文件名会返回“暂未找到您想要的款式”。

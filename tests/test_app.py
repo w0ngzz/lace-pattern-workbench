@@ -27,9 +27,6 @@ class LaceWebsiteTests(unittest.TestCase):
         self.data_dir = root / "data"
         self.thumbnail_dir = root / "thumbnails"
         self.work_orders_file = self.data_dir / "design_work_orders.jsonl"
-        self.material_upload_db = self.data_dir / "material_catalog.db"
-        self.material_upload_original_dir = self.data_dir / "material_library" / "originals"
-        self.material_upload_thumbnail_dir = self.data_dir / "material_library" / "thumbnails"
         self.matcher_state_file = root / "runtime" / "matcher_status.json"
         self.matcher_request_dir = root / "runtime" / "match_requests"
         self.matcher_state_file.parent.mkdir()
@@ -55,9 +52,6 @@ class LaceWebsiteTests(unittest.TestCase):
             lace_app.MATERIAL_ORIGINAL_DIR,
             lace_app.MATERIAL_THUMBNAIL_DIR,
             lace_app.MATERIAL_DATA_DIR,
-            lace_app.MATERIAL_UPLOAD_DB,
-            lace_app.MATERIAL_UPLOAD_ORIGINAL_DIR,
-            lace_app.MATERIAL_UPLOAD_THUMBNAIL_DIR,
             lace_app.UPLOAD_DIR,
             lace_app.DATA_DIR,
             lace_app.THUMBNAIL_DIR,
@@ -70,17 +64,13 @@ class LaceWebsiteTests(unittest.TestCase):
         lace_app.MATERIAL_ORIGINAL_DIR = self.library_original_dir
         lace_app.MATERIAL_THUMBNAIL_DIR = self.library_thumbnail_dir
         lace_app.MATERIAL_DATA_DIR = self.library_data_dir
-        lace_app.MATERIAL_UPLOAD_DB = self.material_upload_db
-        lace_app.MATERIAL_UPLOAD_ORIGINAL_DIR = self.material_upload_original_dir
-        lace_app.MATERIAL_UPLOAD_THUMBNAIL_DIR = self.material_upload_thumbnail_dir
         lace_app.UPLOAD_DIR = self.upload_dir
         lace_app.DATA_DIR = self.data_dir
         lace_app.THUMBNAIL_DIR = self.thumbnail_dir
         lace_app.WORK_ORDERS_FILE = self.work_orders_file
         lace_app.MATCHER_STATE_FILE = self.matcher_state_file
         lace_app.MATCHER_REQUEST_DIR = self.matcher_request_dir
-        self.original_material_upload_token = lace_app.app.config.get("MATERIAL_UPLOAD_TOKEN")
-        lace_app.app.config.update(TESTING=True, MATERIAL_UPLOAD_TOKEN="test-material-token")
+        lace_app.app.config.update(TESTING=True)
         self.client = lace_app.app.test_client()
 
     def tearDown(self):
@@ -90,9 +80,6 @@ class LaceWebsiteTests(unittest.TestCase):
             lace_app.MATERIAL_ORIGINAL_DIR,
             lace_app.MATERIAL_THUMBNAIL_DIR,
             lace_app.MATERIAL_DATA_DIR,
-            lace_app.MATERIAL_UPLOAD_DB,
-            lace_app.MATERIAL_UPLOAD_ORIGINAL_DIR,
-            lace_app.MATERIAL_UPLOAD_THUMBNAIL_DIR,
             lace_app.UPLOAD_DIR,
             lace_app.DATA_DIR,
             lace_app.THUMBNAIL_DIR,
@@ -100,7 +87,6 @@ class LaceWebsiteTests(unittest.TestCase):
             lace_app.MATCHER_STATE_FILE,
             lace_app.MATCHER_REQUEST_DIR,
         ) = self.original_paths
-        lace_app.app.config["MATERIAL_UPLOAD_TOKEN"] = self.original_material_upload_token
         self.temp_dir.cleanup()
 
     def upload(self, filename):
@@ -186,43 +172,9 @@ class LaceWebsiteTests(unittest.TestCase):
         self.assertEqual(response.mimetype, "image/jpeg")
         response.close()
 
-    def test_material_upload_requires_bearer_token(self):
+    def test_material_upload_api_is_not_available(self):
         response = self.client.post("/api/library/materials", json={"styleId": 81})
-        self.assertEqual(response.status_code, 401)
-        self.assertFalse(response.get_json()["ok"])
-
-    def test_material_upload_persists_metadata_and_image(self):
-        image = io.BytesIO()
-        Image.new("RGB", (60, 40), (180, 90, 70)).save(image, "PNG")
-        image.seek(0)
-        response = self.client.post(
-            "/api/library/materials",
-            headers={"Authorization": "Bearer test-material-token"},
-            data={
-                "styleId": "81",
-                "code": "LACE-081",
-                "category": "植物花卉纹",
-                "width": "150cm",
-                "material": "锦纶混纺",
-                "usage": "礼服",
-                "color": "象牙白",
-                "description": "适合轻礼服罩层。",
-                "image": (image, "sample.png"),
-            },
-            content_type="multipart/form-data",
-        )
-        self.assertEqual(response.status_code, 201)
-        self.assertTrue(response.get_json()["ok"])
-        self.assertTrue(self.material_upload_db.is_file())
-        self.assertTrue((self.material_upload_original_dir / "81.png").is_file())
-        self.assertTrue((self.material_upload_thumbnail_dir / "81_thumb.webp").is_file())
-
-        library_response = self.client.get("/library")
-        body = library_response.get_data(as_text=True)
-        self.assertIn("LACE-081", body)
-        self.assertIn('data-width="150cm"', body)
-        self.assertIn('data-material="锦纶混纺"', body)
-        self.assertIn("/uploaded-library-thumbnails/81_thumb.webp", body)
+        self.assertEqual(response.status_code, 404)
 
     def test_design_work_order_is_created(self):
         response = self.client.post(

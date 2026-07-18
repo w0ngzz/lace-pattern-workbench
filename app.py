@@ -2,11 +2,8 @@ from __future__ import annotations
 
 import csv
 import json
-import os
 import re
-import secrets
 import socket
-import sqlite3
 import subprocess
 import sys
 import time
@@ -28,9 +25,6 @@ MATERIAL_THUMBNAIL_DIR = MATERIAL_LIBRARY_DIR / "pic" / "thumbnails"
 MATERIAL_DATA_DIR = MATERIAL_LIBRARY_DIR / "data"
 UPLOAD_DIR = BASE_DIR / "uploads"
 DATA_DIR = BASE_DIR / "data"
-MATERIAL_UPLOAD_DB = DATA_DIR / "material_catalog.db"
-MATERIAL_UPLOAD_ORIGINAL_DIR = DATA_DIR / "material_library" / "originals"
-MATERIAL_UPLOAD_THUMBNAIL_DIR = DATA_DIR / "material_library" / "thumbnails"
 THUMBNAIL_DIR = BASE_DIR / ".cache" / "thumbnails"
 WORK_ORDERS_FILE = DATA_DIR / "design_work_orders.jsonl"
 MATCHER_STATE_FILE = BASE_DIR / ".runtime" / "matcher_status.json"
@@ -105,7 +99,6 @@ PATTERN_DETAILS = [
 
 app = Flask(__name__)
 app.config["MAX_CONTENT_LENGTH"] = MAX_UPLOAD_SIZE
-app.config["MATERIAL_UPLOAD_TOKEN"] = os.environ.get("MATERIAL_UPLOAD_TOKEN", "")
 
 
 def natural_sort_key(path: Path) -> tuple[int, int | str]:
@@ -139,68 +132,6 @@ def safe_float(value: object) -> float:
 
 def compact_number(value: float) -> str:
     return f"{value:,.0f}"
-
-
-def material_database() -> sqlite3.Connection:
-    MATERIAL_UPLOAD_DB.parent.mkdir(parents=True, exist_ok=True)
-    connection = sqlite3.connect(MATERIAL_UPLOAD_DB)
-    connection.row_factory = sqlite3.Row
-    connection.execute(
-        """
-        CREATE TABLE IF NOT EXISTS materials (
-            id INTEGER PRIMARY KEY,
-            code TEXT NOT NULL,
-            category TEXT NOT NULL,
-            width TEXT NOT NULL,
-            material TEXT NOT NULL,
-            usage TEXT NOT NULL,
-            color TEXT NOT NULL,
-            description TEXT NOT NULL,
-            image_name TEXT,
-            created_at TEXT NOT NULL,
-            updated_at TEXT NOT NULL
-        )
-        """
-    )
-    return connection
-
-
-def uploaded_materials() -> dict[int, dict]:
-    if not MATERIAL_UPLOAD_DB.is_file():
-        return {}
-    connection = material_database()
-    try:
-        rows = connection.execute("SELECT * FROM materials ORDER BY id").fetchall()
-    finally:
-        connection.close()
-    return {int(row["id"]): dict(row) for row in rows}
-
-
-def uploaded_material_image_urls(record: dict) -> tuple[str | None, str | None]:
-    image_name = record.get("image_name")
-    if not image_name:
-        return None, None
-    original = MATERIAL_UPLOAD_ORIGINAL_DIR / image_name
-    thumbnail = MATERIAL_UPLOAD_THUMBNAIL_DIR / f"{Path(image_name).stem}_thumb.webp"
-    original_url = (
-        url_for("uploaded_library_image", filename=original.name) if original.is_file() else None
-    )
-    thumbnail_url = (
-        url_for("uploaded_library_thumbnail", filename=thumbnail.name)
-        if thumbnail.is_file()
-        else None
-    )
-    return thumbnail_url or original_url, original_url or thumbnail_url
-
-
-def generate_material_thumbnail(source: Path, destination: Path) -> None:
-    destination.parent.mkdir(parents=True, exist_ok=True)
-    with Image.open(source) as image:
-        image = ImageOps.exif_transpose(image)
-        image.thumbnail((720, 720), Image.Resampling.LANCZOS)
-        if image.mode not in {"RGB", "RGBA"}:
-            image = image.convert("RGB")
-        image.save(destination, "WEBP", quality=82, method=6)
 
 
 PATTERN_TYPE_DESCRIPTIONS = {
@@ -255,7 +186,6 @@ def material_image_urls(style_id: int) -> tuple[str | None, str | None]:
 def load_material_styles() -> tuple[list[dict], Path | None]:
     source = material_library_source()
     grouped_rows: dict[int, list[dict[str, str]]] = {}
-    overrides = uploaded_materials()
 
     if source:
         with source.open("r", encoding="utf-8-sig", newline="") as handle:
@@ -271,32 +201,28 @@ def load_material_styles() -> tuple[list[dict], Path | None]:
             grouped_rows.setdefault(int(path.stem), [])
 
     styles = []
-    for style_id in sorted(set(grouped_rows) | set(overrides)):
-        rows = grouped_rows.get(style_id, [])
-        override = overrides.get(style_id, {})
+    for style_id, rows in sorted(grouped_rows.items()):
         rows.sort(key=lambda row: row.get("季度", ""))
         latest = rows[-1] if rows else {}
         total_sales = sum(safe_float(row.get("销量(米)")) for row in rows)
         total_revenue = sum(safe_float(row.get("销售额(元)")) for row in rows)
         total_orders = sum(safe_float(row.get("订单数")) for row in rows)
         price = total_revenue / total_sales if total_sales else 0
-        pattern_type = override.get("category") or latest.get("花纹类型") or "未分类"
+        pattern_type = latest.get("花纹类型") or latest.get("分类") or "未分类"
         lifecycle = material_lifecycle(rows)
-        image_url, original_url = uploaded_material_image_urls(override)
-        if not image_url:
-            image_url, original_url = material_image_urls(style_id)
+        image_url, original_url = material_image_urls(style_id)
         growth = safe_float(latest.get("环比增长"))
 
         styles.append(
             {
                 "id": style_id,
-                "code": override.get("code") or latest.get("款式名称") or f"LACE-{style_id:03d}",
+                "code": latest.get("款式名称") or f"LACE-{style_id:03d}",
                 "category": pattern_type,
                 "pattern_type": pattern_type,
-                "width": override.get("width") or "未标注",
-                "material": override.get("material") or "未标注",
-                "usage": override.get("usage") or "未标注",
-                "color": override.get("color") or "未标注",
+                "width": latest.get("宽度") or latest.get("幅宽") or "未标注",
+                "material": latest.get("材质") or latest.get("成分") or "未标注",
+                "usage": latest.get("用途") or latest.get("推荐用途") or "未标注",
+                "color": latest.get("颜色") or "未标注",
                 "lifecycle": lifecycle,
                 "listing_status": latest.get("上市状态") or "资料待完善",
                 "latest_quarter": latest.get("季度") or "暂无季度数据",
@@ -311,7 +237,7 @@ def load_material_styles() -> tuple[list[dict], Path | None]:
                 "growth_label": f"{growth:+.1%}" if rows else "--",
                 "image_url": image_url,
                 "original_url": original_url,
-                "description": override.get("description")
+                "description": latest.get("描述")
                 or PATTERN_TYPE_DESCRIPTIONS.get(
                     pattern_type,
                     "款式资料已纳入本店素材库，可结合客户用途、面料手感与成衣部位进一步评估。",
@@ -350,15 +276,8 @@ def index():
 @app.get("/library")
 def library_page():
     styles, source = load_material_styles()
-    asset_files = (
-        pattern_files(MATERIAL_ORIGINAL_DIR)
-        + pattern_files(MATERIAL_THUMBNAIL_DIR)
-        + pattern_files(MATERIAL_UPLOAD_ORIGINAL_DIR)
-        + pattern_files(MATERIAL_UPLOAD_THUMBNAIL_DIR)
-    )
+    asset_files = pattern_files(MATERIAL_ORIGINAL_DIR) + pattern_files(MATERIAL_THUMBNAIL_DIR)
     update_sources = asset_files + ([source] if source else [])
-    if MATERIAL_UPLOAD_DB.is_file():
-        update_sources.append(MATERIAL_UPLOAD_DB)
     category_counts = {}
     for style in styles:
         category_counts[style["category"]] = category_counts.get(style["category"], 0) + 1
@@ -426,144 +345,6 @@ def library_thumbnail(filename: str):
     if safe_name != filename or not source.is_file() or source.suffix.lower() not in ALLOWED_EXTENSIONS:
         abort(404)
     return send_file(source, conditional=True, max_age=3600)
-
-
-def send_uploaded_material_asset(directory: Path, filename: str):
-    safe_name = Path(filename).name
-    source = directory / safe_name
-    if safe_name != filename or not source.is_file() or source.suffix.lower() not in ALLOWED_EXTENSIONS:
-        abort(404)
-    return send_file(source, conditional=True, max_age=3600)
-
-
-@app.get("/uploaded-library-images/<path:filename>")
-def uploaded_library_image(filename: str):
-    return send_uploaded_material_asset(MATERIAL_UPLOAD_ORIGINAL_DIR, filename)
-
-
-@app.get("/uploaded-library-thumbnails/<path:filename>")
-def uploaded_library_thumbnail(filename: str):
-    return send_uploaded_material_asset(MATERIAL_UPLOAD_THUMBNAIL_DIR, filename)
-
-
-def material_upload_authorized() -> bool:
-    expected_token = str(app.config.get("MATERIAL_UPLOAD_TOKEN") or "")
-    authorization = request.headers.get("Authorization", "")
-    supplied_token = authorization[7:] if authorization.startswith("Bearer ") else ""
-    return bool(expected_token) and secrets.compare_digest(supplied_token, expected_token)
-
-
-@app.post("/api/library/materials")
-def upload_material():
-    if not app.config.get("MATERIAL_UPLOAD_TOKEN"):
-        return jsonify({"ok": False, "message": "素材上传接口尚未配置访问令牌。"}), 503
-    if not material_upload_authorized():
-        return jsonify({"ok": False, "message": "无权上传素材，请检查 Bearer Token。"}), 401
-
-    payload = request.get_json(silent=True) if request.is_json else request.form
-    payload = payload or {}
-    try:
-        style_id = int(str(payload.get("styleId", "")).strip())
-    except (TypeError, ValueError):
-        return jsonify({"ok": False, "message": "styleId 必须是有效的正整数。"}), 400
-    if style_id < 1 or style_id > 999999:
-        return jsonify({"ok": False, "message": "styleId 必须在 1 到 999999 之间。"}), 400
-
-    existing = uploaded_materials().get(style_id, {})
-
-    def material_field(name: str, fallback: str, limit: int = 120) -> str:
-        value = payload.get(name)
-        if value is None:
-            return str(existing.get(name) or fallback)
-        return str(value).strip()[:limit] or fallback
-
-    image_name = existing.get("image_name")
-    uploaded_image = request.files.get("image")
-    if uploaded_image and uploaded_image.filename:
-        extension = Path(uploaded_image.filename).suffix.lower()
-        if extension not in ALLOWED_EXTENSIONS:
-            return jsonify({"ok": False, "message": "图片仅支持 PNG、JPG、WEBP 或 BMP。"}), 400
-
-        MATERIAL_UPLOAD_ORIGINAL_DIR.mkdir(parents=True, exist_ok=True)
-        temporary = MATERIAL_UPLOAD_ORIGINAL_DIR / f".{uuid.uuid4().hex}{extension}"
-        uploaded_image.save(temporary)
-        try:
-            with Image.open(temporary) as image:
-                image.verify()
-        except (OSError, ValueError):
-            temporary.unlink(missing_ok=True)
-            return jsonify({"ok": False, "message": "上传文件不是有效图片。"}), 400
-
-        image_name = f"{style_id}{extension}"
-        destination = MATERIAL_UPLOAD_ORIGINAL_DIR / image_name
-        temporary.replace(destination)
-        generate_material_thumbnail(
-            destination,
-            MATERIAL_UPLOAD_THUMBNAIL_DIR / f"{style_id}_thumb.webp",
-        )
-
-        old_image_name = existing.get("image_name")
-        if old_image_name and old_image_name != image_name:
-            (MATERIAL_UPLOAD_ORIGINAL_DIR / old_image_name).unlink(missing_ok=True)
-
-    now = datetime.now().astimezone().isoformat(timespec="seconds")
-    record = {
-        "id": style_id,
-        "code": material_field("code", f"LACE-{style_id:03d}", 80),
-        "category": material_field("category", "未分类", 60),
-        "width": material_field("width", "未标注", 40),
-        "material": material_field("material", "未标注", 80),
-        "usage": material_field("usage", "未标注", 80),
-        "color": material_field("color", "未标注", 40),
-        "description": material_field(
-            "description",
-            "该素材由接口上传，详细设计说明待完善。",
-            1000,
-        ),
-        "image_name": image_name,
-        "created_at": existing.get("created_at") or now,
-        "updated_at": now,
-    }
-    connection = material_database()
-    try:
-        connection.execute(
-            """
-            INSERT INTO materials (
-                id, code, category, width, material, usage, color,
-                description, image_name, created_at, updated_at
-            ) VALUES (
-                :id, :code, :category, :width, :material, :usage, :color,
-                :description, :image_name, :created_at, :updated_at
-            )
-            ON CONFLICT(id) DO UPDATE SET
-                code = excluded.code,
-                category = excluded.category,
-                width = excluded.width,
-                material = excluded.material,
-                usage = excluded.usage,
-                color = excluded.color,
-                description = excluded.description,
-                image_name = excluded.image_name,
-                updated_at = excluded.updated_at
-            """,
-            record,
-        )
-        connection.commit()
-    finally:
-        connection.close()
-
-    return (
-        jsonify(
-            {
-                "ok": True,
-                "created": not bool(existing),
-                "message": "素材上传成功。",
-                "materialId": style_id,
-                "libraryUrl": url_for("library_page"),
-            }
-        ),
-        201 if not existing else 200,
-    )
 
 
 def send_pattern_thumbnail(directory: Path, filename: str):

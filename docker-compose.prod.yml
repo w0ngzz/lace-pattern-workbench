@@ -3,8 +3,6 @@ services:
     image: ${LACE_IMAGE:-w0ngzz/lace-pattern-workbench:latest}
     container_name: lace-pattern-web
     restart: unless-stopped
-    environment:
-      MATERIAL_UPLOAD_TOKEN: ${MATERIAL_UPLOAD_TOKEN:-}
     volumes:
       - lace-pattern-runtime:/app/.runtime
       - lace-pattern-data:/app/data
