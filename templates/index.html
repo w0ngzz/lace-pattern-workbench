@@ -114,20 +114,20 @@
     </div>
 
     <div class="result-view" id="resultView" hidden aria-live="polite">
-      <div id="resultImageWrap" class="result-image" hidden><img id="resultImage" alt="匹配到的蕾丝图案"></div>
       <p class="result-kicker" id="resultKicker">MATCH RESULT</p>
       <h3 id="resultTitle"></h3>
       <p id="resultMessage"></p>
-      <div id="confirmActions" class="button-row" hidden>
-        <button class="primary-button compact" id="confirmMatch" type="button">符合我的需求</button>
-        <button class="secondary-button compact" id="rejectMatch" type="button">不是这一款</button>
+      <div id="matchCandidates" class="match-candidate-grid" role="listbox" aria-label="相似款式候选" hidden></div>
+      <div id="candidateActions" class="button-row candidate-actions" hidden>
+        <button class="primary-button compact" id="confirmCandidate" type="button" disabled>确认选择此款</button>
+        <button class="secondary-button compact" id="rejectAllMatches" type="button">这 5 款都不满意</button>
       </div>
       <div id="previewAction" hidden>
         <a class="primary-button link-button" id="previewLink" href="#">点击预览成衣效果</a>
       </div>
       <div id="workOrderQuestion" class="work-order-question" hidden>
         <span class="flow-step">下一步 · 设计跟进</span>
-        <p>素材库暂未提供合适款式，是否创建设计工单？</p>
+        <p id="workOrderQuestionText">候选款式均不符合需求，是否创建设计工单？</p>
         <div class="button-row">
           <button class="primary-button compact" id="createWorkOrder" type="button">创建设计工单</button>
           <button class="secondary-button compact" id="skipWorkOrder" type="button">暂不创建</button>

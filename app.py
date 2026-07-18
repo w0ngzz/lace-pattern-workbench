@@ -39,7 +39,7 @@ MATCHER_STATUS_MAX_AGE_SECONDS = 12
 MATCHER_RESULT_TIMEOUT_SECONDS = 120
 MATCHER_ARTIFACT_RETENTION_SECONDS = 60 * 60
 MATCH_FILE_URL_TTL_SECONDS = 10 * 60
-MATCH_CLIENT_VERSION = "worker-results-v1"
+MATCH_CLIENT_VERSION = "top5-results-v2"
 
 ALLOWED_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp", ".bmp"}
 MAX_UPLOAD_SIZE = 12 * 1024 * 1024
@@ -489,6 +489,8 @@ def material_file_for_index(image_index: int) -> Path | None:
 
 def normalized_worker_matches(payload: dict) -> list[dict]:
     matches = []
+    seen_indexes = set()
+    style_metadata = {style["id"]: style for style in load_material_styles()[0]}
     raw_matches = payload.get("matches")
     if not isinstance(raw_matches, list):
         return matches
@@ -503,15 +505,21 @@ def normalized_worker_matches(payload: dict) -> list[dict]:
             continue
         if image_index < 1 or not 0 <= similarity <= 1:
             continue
+        if image_index in seen_indexes:
+            continue
 
         material_file = material_file_for_index(image_index)
         if material_file is None:
             continue
+        seen_indexes.add(image_index)
+        metadata = style_metadata.get(image_index, {})
         matches.append(
             {
                 "imageIndex": image_index,
                 "similarity": round(similarity, 4),
                 "fileName": material_file.name,
+                "styleCode": metadata.get("code") or f"LACE-{image_index:03d}",
+                "category": metadata.get("category") or "蕾丝纹样",
                 "matchedImage": url_for("library_image", filename=material_file.name),
                 "previewUrl": url_for("preview", pattern=material_file.name),
             }
@@ -575,18 +583,23 @@ def match_result(request_id: str):
 
     matches = normalized_worker_matches(worker_result)
     matched = bool(worker_result.get("matched", bool(matches))) and bool(matches)
+    candidate_count = len(matches)
     response = {
         "ok": True,
         "status": "completed",
         "requestId": request_id,
         "uploadFileName": job.get("fileName"),
         "matched": matched,
-        "message": "匹配成功" if matched else "暂未找到您想要的款式",
+        "message": (
+            f"已找到 {candidate_count} 个相似候选款式"
+            if candidate_count
+            else "暂未找到您想要的款式"
+        ),
         "matches": matches,
         "elapsedMs": worker_result.get("elapsedMs"),
         "modelVersion": worker_result.get("modelVersion"),
     }
-    if matched:
+    if matches:
         best_match = matches[0]
         response.update(
             {

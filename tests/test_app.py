@@ -146,6 +146,9 @@ class LaceWebsiteTests(unittest.TestCase):
         self.assertIn('href="/library"', body)
         self.assertIn("客户图案智能匹配", body)
         self.assertIn('id="matchSteps"', body)
+        self.assertIn('id="matchCandidates"', body)
+        self.assertIn('id="confirmCandidate"', body)
+        self.assertIn('id="rejectAllMatches"', body)
         self.assertIn('class="design-workbench"', body)
         self.assertLess(body.index('id="collection"'), body.index('id="recognition"'))
         self.assertEqual(body.count('class="pattern-image pattern-detail-trigger"'), 10)
@@ -188,12 +191,23 @@ class LaceWebsiteTests(unittest.TestCase):
         self.assertFalse(self.matcher_request_dir.exists())
 
     def test_worker_match_result_is_returned_to_browser(self):
+        for index in range(2, 7):
+            Image.new("RGB", (40, 40), (index * 10, 80, 100)).save(
+                self.library_original_dir / f"{index}.png"
+            )
         submitted = self.upload("customer.png").get_json()
         self.save_worker_result(
             submitted["requestId"],
             ok=True,
             matched=True,
-            matches=[{"imageIndex": 1, "similarity": 0.9231}],
+            matches=[
+                {"imageIndex": 1, "similarity": 0.9231},
+                {"imageIndex": 2, "similarity": 0.8764},
+                {"imageIndex": 3, "similarity": 0.8421},
+                {"imageIndex": 4, "similarity": 0.8135},
+                {"imageIndex": 5, "similarity": 0.7902},
+                {"imageIndex": 6, "similarity": 0.7501},
+            ],
             elapsedMs=1260,
             modelVersion="lace-v1",
         )
@@ -208,6 +222,34 @@ class LaceWebsiteTests(unittest.TestCase):
         self.assertEqual(payload["similarity"], 0.9231)
         self.assertEqual(payload["matchedImage"], "/library-images/1.png")
         self.assertEqual(payload["modelVersion"], "lace-v1")
+        self.assertEqual(payload["matches"][0]["styleCode"], "LACE-001")
+        self.assertEqual(payload["matches"][0]["category"], "巴洛克纹")
+        self.assertEqual(len(payload["matches"]), 5)
+        self.assertEqual([match["imageIndex"] for match in payload["matches"]], [1, 2, 3, 4, 5])
+
+    def test_worker_top_five_candidates_are_kept_below_threshold(self):
+        for index in range(2, 6):
+            Image.new("RGB", (40, 40), (index * 10, 80, 100)).save(
+                self.library_original_dir / f"{index}.png"
+            )
+        submitted = self.upload("customer.png").get_json()
+        self.save_worker_result(
+            submitted["requestId"],
+            ok=True,
+            matched=False,
+            matches=[
+                {"imageIndex": index, "similarity": 0.7 - index / 100}
+                for index in range(1, 6)
+            ],
+        )
+
+        response = self.client.get(f"/api/match-results/{submitted['requestId']}")
+        payload = response.get_json()
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(payload["matched"])
+        self.assertEqual(payload["message"], "已找到 5 个相似候选款式")
+        self.assertEqual(len(payload["matches"]), 5)
+        self.assertEqual(payload["imageIndex"], 1)
 
     def test_worker_no_match_result_is_returned_to_browser(self):
         submitted = self.upload("customer.png").get_json()

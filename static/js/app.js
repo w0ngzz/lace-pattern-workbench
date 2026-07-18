@@ -4,6 +4,14 @@ const panelMatcherStatusText = document.querySelector('#panelMatcherStatusText')
 let matcherOnline = false;
 let statusRequest = null;
 
+async function readJsonResponse(response) {
+  const contentType = response.headers.get('content-type') || '';
+  if (!contentType.toLowerCase().includes('application/json')) {
+    throw new Error(`服务返回了异常页面（HTTP ${response.status}），请稍后重试。`);
+  }
+  return response.json();
+}
+
 function applyMatcherAvailability(online, message = '') {
   matcherOnline = online;
   const fileInput = document.querySelector('#patternFile');
@@ -29,7 +37,7 @@ async function refreshMatcherStatus() {
     try {
       const response = await fetch('/api/matcher-status', { cache: 'no-store' });
       if (!response.ok) throw new Error('status request failed');
-      const payload = await response.json();
+      const payload = await readJsonResponse(response);
       const statusMessage = payload.workerId ? `节点：${payload.workerId}` : payload.message;
       applyMatcherAvailability(payload.online, statusMessage);
       return payload.online;
@@ -106,16 +114,19 @@ if (uploadForm) {
   const resultView = document.querySelector("#resultView");
   const resultTitle = document.querySelector("#resultTitle");
   const resultMessage = document.querySelector("#resultMessage");
-  const resultImage = document.querySelector("#resultImage");
-  const resultImageWrap = document.querySelector("#resultImageWrap");
-  const confirmActions = document.querySelector("#confirmActions");
+  const matchCandidates = document.querySelector("#matchCandidates");
+  const candidateActions = document.querySelector("#candidateActions");
+  const confirmCandidate = document.querySelector("#confirmCandidate");
+  const rejectAllMatches = document.querySelector("#rejectAllMatches");
   const previewAction = document.querySelector("#previewAction");
   const previewLink = document.querySelector("#previewLink");
   const workOrderQuestion = document.querySelector("#workOrderQuestion");
+  const workOrderQuestionText = document.querySelector("#workOrderQuestionText");
   const customerForm = document.querySelector("#customerForm");
   const resetFinder = document.querySelector("#resetFinder");
   let uploadFileName = "";
   let matchStatus = "unknown";
+  let selectedCandidate = null;
 
   function setMatchStep(activeStep) {
     matchSteps.forEach((step) => {
@@ -175,7 +186,7 @@ if (uploadForm) {
       const response = await fetch(`/api/match-results/${requestId}`, {
         cache: 'no-store',
       });
-      const payload = await response.json();
+      const payload = await readJsonResponse(response);
 
       if (response.status === 202) {
         progress = Math.min(94, progress + Math.max(1, Math.ceil((96 - progress) * 0.08)));
@@ -193,10 +204,74 @@ if (uploadForm) {
     throw new Error('图案识别服务响应超时，请重新上传或创建设计工单。');
   }
 
-  function showWorkOrderQuestion() {
-    confirmActions.hidden = true;
+  function showWorkOrderQuestion(message = '候选款式均不符合需求，是否创建设计工单？') {
+    candidateActions.hidden = true;
     previewAction.hidden = true;
+    workOrderQuestionText.textContent = message;
     workOrderQuestion.hidden = false;
+  }
+
+  function selectCandidate(button, candidate) {
+    selectedCandidate = candidate;
+    matchStatus = "unknown";
+    workOrderQuestion.hidden = true;
+    customerForm.hidden = true;
+    previewAction.hidden = true;
+    candidateActions.hidden = false;
+    matchCandidates.querySelectorAll('.match-candidate').forEach((item) => {
+      const selected = item === button;
+      item.classList.toggle('is-selected', selected);
+      item.setAttribute('aria-selected', String(selected));
+    });
+    confirmCandidate.disabled = false;
+    const displayName = candidate.styleCode || candidate.fileName;
+    confirmCandidate.textContent = `确认选择 ${displayName}`;
+    resultMessage.textContent = `已选中 ${displayName}，相似度 ${(candidate.similarity * 100).toFixed(1)}%，确认后可继续预览。`;
+  }
+
+  function renderCandidates(rawCandidates) {
+    matchCandidates.replaceChildren();
+    selectedCandidate = null;
+    confirmCandidate.disabled = true;
+    confirmCandidate.textContent = '确认选择此款';
+
+    const candidates = Array.isArray(rawCandidates) ? rawCandidates.slice(0, 5) : [];
+    candidates.forEach((candidate, index) => {
+      const similarity = Number(candidate.similarity);
+      if (!candidate.fileName || !candidate.matchedImage || !Number.isFinite(similarity)) return;
+
+      const button = document.createElement('button');
+      button.className = 'match-candidate';
+      button.type = 'button';
+      button.setAttribute('role', 'option');
+      button.setAttribute('aria-selected', 'false');
+
+      const visual = document.createElement('span');
+      visual.className = 'match-candidate-visual';
+      const image = document.createElement('img');
+      image.src = candidate.matchedImage;
+      image.alt = `候选款式 ${candidate.styleCode || candidate.fileName}`;
+      const rank = document.createElement('span');
+      rank.className = 'match-candidate-rank';
+      rank.textContent = String(index + 1).padStart(2, '0');
+      visual.append(image, rank);
+
+      const details = document.createElement('span');
+      details.className = 'match-candidate-details';
+      const name = document.createElement('strong');
+      name.textContent = candidate.styleCode || candidate.fileName;
+      const score = document.createElement('small');
+      score.textContent = `${candidate.category || '蕾丝纹样'} · ${(similarity * 100).toFixed(1)}%`;
+      details.append(name, score);
+      button.append(visual, details);
+      button.addEventListener('click', () => selectCandidate(button, { ...candidate, similarity }));
+      matchCandidates.append(button);
+    });
+
+    const hasCandidates = matchCandidates.childElementCount > 0;
+    matchCandidates.hidden = !hasCandidates;
+    candidateActions.hidden = !hasCandidates;
+    return matchCandidates.childElementCount;
   }
 
   uploadForm.addEventListener("submit", async (event) => {
@@ -219,10 +294,10 @@ if (uploadForm) {
       formData.append("pattern", fileInput.files[0]);
       const response = await fetch("/api/match", {
         method: "POST",
-        headers: { "X-Match-Client-Version": "worker-results-v1" },
+        headers: { "X-Match-Client-Version": "top5-results-v2" },
         body: formData,
       });
-      const submission = await response.json();
+      const submission = await readJsonResponse(response);
       if (!response.ok) throw new Error(submission.message || "识别请求失败，请稍后重试。");
       if (!submission.requestId) throw new Error("识别任务创建失败，未返回任务编号。");
 
@@ -236,47 +311,56 @@ if (uploadForm) {
       workOrderQuestion.hidden = true;
       customerForm.hidden = true;
       previewAction.hidden = true;
+      matchStatus = "unknown";
 
-      resultTitle.textContent = payload.message;
-      if (payload.matched) {
-        matchStatus = "matched";
-        const similarityPercent = (Number(payload.similarity) * 100).toFixed(1);
-        resultMessage.textContent = `最相似素材为 ${payload.matchedFileName}，相似度 ${similarityPercent}%，请确认是否符合您的需求。`;
-        resultImage.src = payload.matchedImage;
-        resultImageWrap.hidden = false;
-        confirmActions.hidden = false;
-        previewLink.href = payload.previewUrl;
+      const candidateCount = renderCandidates(payload.matches);
+      if (candidateCount) {
+        resultTitle.textContent = "请选择合适的款式";
+        resultMessage.textContent = `Worker 返回了 ${candidateCount} 个相似候选，请选择最符合客户需求的一款。`;
       } else {
         matchStatus = "not_matched";
-        resultMessage.textContent = "Worker 暂未找到达到相似度要求的素材，可继续创建内部设计工单并登记客户信息。";
-        resultImageWrap.hidden = true;
-        confirmActions.hidden = true;
-        showWorkOrderQuestion();
+        resultTitle.textContent = payload.message || "暂未找到合适款式";
+        resultMessage.textContent = "Worker 没有返回可用候选款式，可继续创建内部设计工单并登记客户信息。";
+        showWorkOrderQuestion('素材库暂未提供合适款式，是否创建设计工单？');
       }
     } catch (error) {
       matchStatus = "not_matched";
       progressView.hidden = true;
       resultView.hidden = false;
       setMatchStep(3);
-      resultImageWrap.hidden = true;
-      confirmActions.hidden = true;
+      matchCandidates.replaceChildren();
+      matchCandidates.hidden = true;
+      candidateActions.hidden = true;
       previewAction.hidden = true;
       customerForm.hidden = true;
       resultTitle.textContent = "识别未完成";
       resultMessage.textContent = error.message;
-      showWorkOrderQuestion();
+      showWorkOrderQuestion('识别任务未能完成，是否创建设计工单继续跟进？');
     }
   });
 
-  document.querySelector("#confirmMatch").addEventListener("click", () => {
-    confirmActions.hidden = true;
+  confirmCandidate.addEventListener("click", () => {
+    if (!selectedCandidate) return;
+    matchStatus = "matched";
+    matchCandidates.querySelectorAll('.match-candidate').forEach((button) => {
+      button.disabled = true;
+    });
+    candidateActions.hidden = true;
     previewAction.hidden = false;
-    resultMessage.textContent = "已确认图案符合需求，可以继续查看成衣效果。";
+    previewLink.href = selectedCandidate.previewUrl;
+    resultTitle.textContent = "款式已确认";
+    resultMessage.textContent = `已确认 ${selectedCandidate.styleCode || selectedCandidate.fileName} 符合需求，可以继续查看成衣效果。`;
   });
 
-  document.querySelector("#rejectMatch").addEventListener("click", () => {
+  rejectAllMatches.addEventListener("click", () => {
     matchStatus = "rejected";
-    resultMessage.textContent = "已标记为不是这一款，可创建内部设计工单继续跟进。";
+    selectedCandidate = null;
+    matchCandidates.querySelectorAll('.match-candidate').forEach((button) => {
+      button.classList.remove('is-selected');
+      button.setAttribute('aria-selected', 'false');
+    });
+    resultTitle.textContent = "候选款式均不合适";
+    resultMessage.textContent = "已确认本次 Top 5 候选均不符合客户需求，可创建内部设计工单继续跟进。";
     showWorkOrderQuestion();
   });
 
@@ -309,7 +393,7 @@ if (uploadForm) {
           matchStatus,
         }),
       });
-      const payload = await response.json();
+      const payload = await readJsonResponse(response);
       if (!response.ok) throw new Error(payload.message || "提交失败，请稍后重试。");
       customerForm.hidden = true;
       resultTitle.textContent = "工单创建成功";
@@ -329,6 +413,12 @@ if (uploadForm) {
     resultView.hidden = true;
     customerForm.reset();
     matchStatus = "unknown";
+    selectedCandidate = null;
+    matchCandidates.replaceChildren();
+    matchCandidates.hidden = true;
+    candidateActions.hidden = true;
+    workOrderQuestion.hidden = true;
+    previewAction.hidden = true;
     setMatchStep(1);
     window.location.hash = "recognition";
   });

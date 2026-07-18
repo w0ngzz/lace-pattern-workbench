@@ -49,8 +49,9 @@ docker compose --env-file .env -f docker-compose.prod.yml up -d
 2. 后端生成 10 分钟有效的签名下载链接，将 `match_request` 写入共享运行目录。
 3. Gateway 通过 WebSocket 把任务发送给已认证的远程 Worker。
 4. Worker 下载图片、执行识别，并通过同一个 WebSocket 返回 `match_result`。
-5. Gateway 将结果写入共享运行目录，浏览器轮询结果接口并展示素材序号与相似度。
-6. Worker 在 120 秒内未返回时，页面提示超时，并允许用户创建设计工单。
+5. Gateway 将结果写入共享运行目录，浏览器轮询结果接口并展示最多 5 个候选款式及相似度。
+6. 用户从候选款式中确认一款后可以进入成衣预览；只有全部不满意时才进入设计工单。
+7. Worker 在 120 秒内未返回时，页面提示超时，并允许用户创建设计工单。
 
 Worker 成功回包示例：
 
