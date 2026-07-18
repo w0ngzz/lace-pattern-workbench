@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="本月蕾丝图案精选与图案匹配服务">
+  <title>{% block title %}绡纹 · 蕾丝图案精选{% endblock %}</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+  <header class="site-header">
+    <a class="brand" href="{{ url_for('index') }}" aria-label="返回首页">
+      <span class="brand-mark">绡</span>
+      <span><strong>绡纹</strong><small>DESIGNER WORKBENCH</small></span>
+    </a>
+    <a class="header-action" href="{{ url_for('index') }}#recognition">图案识别</a>
+  </header>
+  <main>{% block content %}{% endblock %}</main>
+  <footer class="site-footer">
+    <span>绡纹蕾丝设计参考库</span>
+    <span>以纹理连接灵感与成衣</span>
+  </footer>
+  {% block scripts %}{% endblock %}
+</body>
+</html>

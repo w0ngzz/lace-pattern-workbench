@@ -1,0 +1,122 @@
+{% extends "base.html" %}
+
+{% block content %}
+<section class="hero">
+  <div class="hero-copy reveal">
+    <p class="eyebrow">MONTHLY LACE EDIT · 01—10</p>
+    <h1>本月值得<br><em>参考的蕾丝</em></h1>
+    <p class="hero-intro">面向面料与服装设计人员，从肌理、密度与花型节奏中，挑选十款能够启发下一季设计的蕾丝图案。</p>
+    <a class="text-link" href="#collection">浏览本月精选 <span>↓</span></a>
+  </div>
+  <div class="hero-art reveal delay-one" aria-hidden="true">
+    {% if patterns %}
+    <img src="{{ patterns[0].image_url }}" alt="">
+    {% endif %}
+    <div class="hero-stamp"><span>TOP</span><strong>10</strong><small>{{ month_label }}</small></div>
+  </div>
+  <div class="hero-note reveal delay-two">
+    <span>统一更新时间</span>
+    <strong>{{ updated_at }}</strong>
+    <small>本期图案为同一批次更新</small>
+  </div>
+</section>
+
+<section class="collection" id="collection">
+  <div class="section-heading">
+    <div>
+      <p class="eyebrow">CURATED PATTERNS</p>
+      <h2>本月精选图案</h2>
+    </div>
+    <p>10 款 / 同一批次 / 按序号陈列</p>
+  </div>
+
+  {% if patterns %}
+  <div class="pattern-grid">
+    {% for pattern in patterns %}
+    <article class="pattern-card reveal-card">
+      <div class="pattern-image">
+        <img src="{{ pattern.image_url }}" alt="蕾丝图案 {{ pattern.name }}" loading="lazy">
+        <span class="rank">{{ "%02d"|format(pattern.rank) }}</span>
+      </div>
+      <div class="pattern-meta">
+        <h3>纹样 {{ "%02d"|format(pattern.rank) }}</h3>
+        <span>{{ pattern.name }}</span>
+      </div>
+    </article>
+    {% endfor %}
+  </div>
+  {% else %}
+  <div class="empty-library">pattern 文件夹中暂时没有可展示的图案。</div>
+  {% endif %}
+</section>
+
+<section class="recognition" id="recognition">
+  <div class="recognition-intro">
+    <p class="eyebrow light">PATTERN FINDER</p>
+    <h2>带着你的灵感来，<br>我们替你寻找相近纹样。</h2>
+    <p>上传客户提供的蕾丝参考图，当前测试版会根据文件名在素材库中查找同名款式。</p>
+    <div class="process-notes">
+      <span>01 上传图案</span>
+      <span>02 素材匹配</span>
+      <span>03 确认结果</span>
+    </div>
+  </div>
+
+  <div class="finder-panel" id="finderPanel">
+    <form id="uploadForm" class="upload-form">
+      <label class="drop-zone" id="dropZone" for="patternFile">
+        <input id="patternFile" name="pattern" type="file" accept="image/png,image/jpeg,image/webp,image/bmp" required>
+        <span class="upload-icon">＋</span>
+        <strong id="fileLabel">选择或拖入客户参考图</strong>
+        <small>支持 PNG / JPG / WEBP / BMP，最大 12 MB</small>
+      </label>
+      <button class="primary-button" id="matchButton" type="submit">开始识别图案</button>
+    </form>
+
+    <div class="progress-view" id="progressView" hidden aria-live="polite">
+      <div class="spinner-lace" aria-hidden="true"></div>
+      <p class="progress-label" id="progressLabel">正在读取图案纹理…</p>
+      <div class="progress-track"><span id="progressBar"></span></div>
+      <strong id="progressValue">0%</strong>
+    </div>
+
+    <div class="result-view" id="resultView" hidden aria-live="polite">
+      <div id="resultImageWrap" class="result-image" hidden><img id="resultImage" alt="匹配到的蕾丝图案"></div>
+      <p class="result-kicker" id="resultKicker">MATCH RESULT</p>
+      <h3 id="resultTitle"></h3>
+      <p id="resultMessage"></p>
+      <div id="confirmActions" class="button-row" hidden>
+        <button class="primary-button compact" id="confirmMatch" type="button">符合我的需求</button>
+        <button class="secondary-button compact" id="rejectMatch" type="button">不是这一款</button>
+      </div>
+      <div id="previewAction" hidden>
+        <a class="primary-button link-button" id="previewLink" href="#">点击预览成衣效果</a>
+      </div>
+      <div id="workOrderQuestion" class="work-order-question" hidden>
+        <span class="flow-step">下一步 · 设计跟进</span>
+        <p>素材库暂未提供合适款式，是否创建设计工单？</p>
+        <div class="button-row">
+          <button class="primary-button compact" id="createWorkOrder" type="button">创建设计工单</button>
+          <button class="secondary-button compact" id="skipWorkOrder" type="button">暂不创建</button>
+        </div>
+      </div>
+
+      <form id="customerForm" class="customer-form" hidden>
+        <div class="form-heading">
+          <span class="flow-step">设计工单 · 客户登记</span>
+          <h4>登记客户信息</h4>
+          <p>请填写本次设计需求对应的客户资料，提交后系统将生成工单编号。</p>
+        </div>
+        <label>客户姓名<input name="customerName" type="text" maxlength="50" autocomplete="name" required></label>
+        <label>客户联系方式<input name="customerContact" type="text" maxlength="100" placeholder="手机、微信或邮箱" autocomplete="tel" required></label>
+        <button class="primary-button" type="submit">登记并创建工单</button>
+      </form>
+      <button class="reset-button" id="resetFinder" type="button">重新上传</button>
+    </div>
+  </div>
+</section>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/app.js') }}" defer></script>
+{% endblock %}

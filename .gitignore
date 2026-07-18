@@ -1,0 +1,10 @@
+.venv/
+.agents/
+.env
+*.log
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.cache/
+uploads/
+data/design_work_orders.jsonl

@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+
+{% block title %}成衣效果预览 · 绡纹{% endblock %}
+
+{% block content %}
+<section class="preview-placeholder">
+  <p class="eyebrow">GARMENT PREVIEW · COMING SOON</p>
+  <div class="dress-outline" aria-hidden="true">
+    <span></span>
+  </div>
+  <h1>成衣效果，正在打版。</h1>
+  <p>该页面目前为功能占位{% if pattern_name %}，已选择图案 <strong>{{ pattern_name }}</strong>{% endif %}。后续将接入真实成衣预览能力。</p>
+  <a class="primary-button link-button" href="{{ url_for('index') }}#recognition">返回图案识别</a>
+</section>
+{% endblock %}
+
