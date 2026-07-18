@@ -1,0 +1,232 @@
+{% extends "base.html" %}
+
+{% block title %}本店素材库 · 蕾智创库{% endblock %}
+
+{% block content %}
+<section class="material-archive">
+  <header class="archive-banner">
+    <div class="archive-banner-copy">
+      <p class="eyebrow">LACE MATERIAL ARCHIVE · DESIGNER EDITION</p>
+      <h1>灵感有迹<br><em>纹样可寻</em></h1>
+      <p>面向服装与面料设计人员的蕾丝素材档案。用清晰的规格标签和经营数据，缩短从灵感检索到选款沟通的距离。</p>
+      <div class="archive-banner-meta">
+        <span><b>{{ style_count }}</b> 款素材</span>
+        <span>更新于 {{ updated_at }}</span>
+      </div>
+    </div>
+    <div class="archive-banner-mark" aria-hidden="true">
+      <span>LACE</span>
+      <strong>纹</strong>
+      <small>MATERIAL / TEXTURE / FORM</small>
+    </div>
+  </header>
+
+  <section class="archive-discovery" aria-labelledby="archiveSearchTitle">
+    <div class="archive-section-title">
+      <div>
+        <p class="eyebrow">FIND YOUR MATERIAL</p>
+        <h2 id="archiveSearchTitle">查找合适的蕾丝素材</h2>
+      </div>
+      <p><strong id="libraryResultCount">{{ style_count }}</strong> 款符合当前条件</p>
+    </div>
+
+    <label class="archive-search-box">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m16 16 5 5"/></svg>
+      <span class="sr-only">搜索素材</span>
+      <input id="librarySearch" type="search" placeholder="搜索编号、款式名称、分类、材质或用途">
+      <kbd>SEARCH</kbd>
+    </label>
+
+    <div class="archive-filters" aria-label="素材筛选条件">
+      <label>
+        <span>分类</span>
+        <select id="categoryFilter">
+          <option value="">全部分类</option>
+          {% for value in categories %}<option value="{{ value }}">{{ value }}</option>{% endfor %}
+        </select>
+      </label>
+      <label>
+        <span>宽度</span>
+        <select id="widthFilter">
+          <option value="">全部宽度</option>
+          {% for value in widths %}<option value="{{ value }}">{{ value }}</option>{% endfor %}
+        </select>
+      </label>
+      <label>
+        <span>材质</span>
+        <select id="materialFilter">
+          <option value="">全部材质</option>
+          {% for value in materials %}<option value="{{ value }}">{{ value }}</option>{% endfor %}
+        </select>
+      </label>
+      <label>
+        <span>用途</span>
+        <select id="usageFilter">
+          <option value="">全部用途</option>
+          {% for value in usages %}<option value="{{ value }}">{{ value }}</option>{% endfor %}
+        </select>
+      </label>
+      <label>
+        <span>颜色</span>
+        <select id="colorFilter">
+          <option value="">全部颜色</option>
+          {% for value in colors %}<option value="{{ value }}">{{ value }}</option>{% endfor %}
+        </select>
+      </label>
+      <button class="archive-reset-filter" id="resetLibraryFilters" type="button">清除筛选</button>
+    </div>
+  </section>
+
+  {% if hot_categories %}
+  <section class="popular-categories" aria-labelledby="popularCategoryTitle">
+    <div class="archive-section-title compact">
+      <div>
+        <p class="eyebrow">POPULAR CATEGORIES</p>
+        <h2 id="popularCategoryTitle">热门分类</h2>
+      </div>
+      <span>点击快速筛选</span>
+    </div>
+    <div class="popular-category-list">
+      {% for category, count in hot_categories %}
+      <button class="popular-category" type="button" data-category-shortcut="{{ category|e }}">
+        <span class="category-symbol" aria-hidden="true">
+          <i></i><i></i><i></i><i></i>
+        </span>
+        <strong>{{ category }}</strong>
+        <small>{{ count }} 款素材</small>
+      </button>
+      {% endfor %}
+    </div>
+  </section>
+  {% endif %}
+
+  <section class="archive-results" aria-labelledby="archiveResultsTitle">
+    <div class="archive-section-title compact">
+      <div>
+        <p class="eyebrow">MATERIAL INDEX</p>
+        <h2 id="archiveResultsTitle">全部素材</h2>
+      </div>
+      <label class="archive-sort">
+        <span>排序</span>
+        <select id="librarySort">
+          <option value="id">编号从小到大</option>
+          <option value="sales">累计销量优先</option>
+          <option value="revenue">累计销售额优先</option>
+          <option value="price">参考单价优先</option>
+        </select>
+      </label>
+    </div>
+
+    {% if styles %}
+    <div class="library-grid archive-grid" id="libraryGrid">
+      {% for style in styles %}
+      <button
+        class="library-card reveal-card"
+        type="button"
+        {% if loop.index > 16 %}hidden{% endif %}
+        data-id="{{ style.id }}"
+        data-search="{{ style.id }} {{ style.code|e }} {{ style.category|e }} {{ style.width|e }} {{ style.material|e }} {{ style.usage|e }} {{ style.color|e }}"
+        data-category="{{ style.category|e }}"
+        data-width="{{ style.width|e }}"
+        data-material="{{ style.material|e }}"
+        data-usage="{{ style.usage|e }}"
+        data-color="{{ style.color|e }}"
+        data-lifecycle="{{ style.lifecycle|e }}"
+        data-sales="{{ style.total_sales }}"
+        data-revenue="{{ style.total_revenue }}"
+        data-price="{{ style.price }}"
+        data-code="{{ style.code|e }}"
+        data-status="{{ style.listing_status|e }}"
+        data-quarter="{{ style.latest_quarter|e }}"
+        data-sales-label="{{ style.total_sales_label }}"
+        data-revenue-label="{{ style.total_revenue_label }}"
+        data-price-label="{{ style.price_label }}"
+        data-orders-label="{{ style.orders_label }}"
+        data-stock-label="{{ style.stock_label }}"
+        data-growth-label="{{ style.growth_label }}"
+        data-description="{{ style.description|e }}"
+        data-image="{{ style.original_url or style.image_url or '' }}"
+        aria-label="查看 {{ style.code }} 素材档案"
+      >
+        <span class="library-card-image">
+          {% if style.image_url %}
+          <img src="{{ style.image_url }}" alt="{{ style.code }} {{ style.category }}蕾丝图案" loading="lazy">
+          {% else %}
+          <span class="library-image-placeholder"><b>{{ "%03d"|format(style.id) }}</b><small>IMAGE PENDING</small></span>
+          {% endif %}
+          <span class="library-card-number">{{ "%03d"|format(style.id) }}</span>
+          <span class="library-stage">{{ style.lifecycle }}</span>
+        </span>
+        <span class="library-card-title">
+          <span><small>{{ style.category }}</small><strong>{{ style.code }}</strong></span>
+          <em>查看档案 ↗</em>
+        </span>
+        <span class="material-tags">
+          <span>{{ style.width }}</span>
+          <span>{{ style.material }}</span>
+          <span>{{ style.color }}</span>
+        </span>
+        <span class="library-card-metrics">
+          <span><small>累计销量</small><b>{{ style.total_sales_label }} m</b></span>
+          <span><small>参考单价</small><b>¥{{ style.price_label }}/m</b></span>
+        </span>
+      </button>
+      {% endfor %}
+    </div>
+
+    <div class="library-filter-empty" id="libraryFilterEmpty" hidden>
+      <span>NO MATCHED MATERIAL</span>
+      <strong>没有符合当前条件的素材</strong>
+      <p>可以清除部分筛选条件，或者换一个款式编号、材质和用途关键词。</p>
+    </div>
+
+    <nav class="archive-pagination" id="libraryPagination" aria-label="素材列表分页">
+      <button id="previousLibraryPage" type="button">← 上一页</button>
+      <div id="libraryPageNumbers"></div>
+      <button id="nextLibraryPage" type="button">下一页 →</button>
+    </nav>
+    {% else %}
+    <div class="library-empty-state">
+      <span>PRIVATE MATERIAL ARCHIVE</span>
+      <h2>素材库尚未挂载</h2>
+      <p>请挂载基础素材目录，或通过 <code>POST /api/library/materials</code> 上传素材数据。</p>
+      <a href="{{ url_for('index') }}">返回首页</a>
+    </div>
+    {% endif %}
+  </section>
+</section>
+
+<div class="library-modal" id="libraryModal" hidden role="dialog" aria-modal="true" aria-labelledby="libraryModalTitle">
+  <button class="library-modal-backdrop" type="button" data-close-library-modal aria-label="关闭素材档案"></button>
+  <article class="library-modal-sheet">
+    <button class="library-modal-close" type="button" data-close-library-modal aria-label="关闭素材档案">×</button>
+    <div class="library-modal-visual" id="libraryModalVisual">
+      <img id="libraryModalImage" alt="">
+      <span id="libraryModalNumber"></span>
+    </div>
+    <div class="library-modal-content">
+      <p class="eyebrow">MATERIAL SPECIFICATION</p>
+      <div class="library-modal-heading">
+        <div><span id="libraryModalCategory"></span><h2 id="libraryModalTitle"></h2></div>
+        <strong id="libraryModalStage"></strong>
+      </div>
+      <p class="library-modal-description" id="libraryModalDescription"></p>
+      <dl class="library-detail-grid material-spec-grid">
+        <div><dt>宽度</dt><dd id="libraryModalWidth"></dd></div>
+        <div><dt>材质</dt><dd id="libraryModalMaterial"></dd></div>
+        <div><dt>用途</dt><dd id="libraryModalUsage"></dd></div>
+        <div><dt>颜色</dt><dd id="libraryModalColor"></dd></div>
+        <div><dt>上市状态</dt><dd id="libraryModalStatus"></dd></div>
+        <div><dt>最新季度</dt><dd id="libraryModalQuarter"></dd></div>
+        <div><dt>累计销量</dt><dd id="libraryModalSales"></dd></div>
+        <div><dt>参考单价</dt><dd id="libraryModalPrice"></dd></div>
+      </dl>
+      <p class="library-modal-note">规格和经营数据用于设计选款参考，具体库存、手感与交期请进一步确认。</p>
+    </div>
+  </article>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/library.js') }}" defer></script>
+{% endblock %}

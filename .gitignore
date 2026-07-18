@@ -7,7 +7,7 @@ __pycache__/
 .pytest_cache/
 .cache/
 uploads/
-data/design_work_orders.jsonl
+/data/
 .runtime/
 dev_match_gateway.py
 mock_match_worker.py

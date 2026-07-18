@@ -1,6 +1,6 @@
 const uploadForm = document.querySelector("#uploadForm");
-const matcherStatus = document.querySelector('#matcherStatus');
-const matcherStatusText = document.querySelector('#matcherStatusText');
+const panelMatcherStatus = document.querySelector('#panelMatcherStatus');
+const panelMatcherStatusText = document.querySelector('#panelMatcherStatusText');
 let matcherOnline = false;
 let statusRequest = null;
 
@@ -12,6 +12,11 @@ function applyMatcherAvailability(online, message = '') {
 
   if (fileInput) fileInput.disabled = !online;
   if (matchButton) matchButton.disabled = !online;
+  if (panelMatcherStatus && panelMatcherStatusText) {
+    panelMatcherStatus.dataset.status = online ? 'online' : 'offline';
+    panelMatcherStatusText.textContent = online ? '服务在线' : '服务离线';
+    panelMatcherStatus.title = message;
+  }
   if (availability) {
     availability.hidden = online;
     availability.textContent = message || '图案识别服务当前不在线，暂时无法上传和匹配。';
@@ -25,15 +30,10 @@ async function refreshMatcherStatus() {
       const response = await fetch('/api/matcher-status', { cache: 'no-store' });
       if (!response.ok) throw new Error('status request failed');
       const payload = await response.json();
-      matcherStatus.dataset.status = payload.online ? 'online' : 'offline';
-      matcherStatusText.textContent = payload.online ? '识别服务在线' : '识别服务离线';
-      matcherStatus.title = payload.workerId ? `节点：${payload.workerId}` : payload.message;
-      applyMatcherAvailability(payload.online, payload.message);
+      const statusMessage = payload.workerId ? `节点：${payload.workerId}` : payload.message;
+      applyMatcherAvailability(payload.online, statusMessage);
       return payload.online;
     } catch (_error) {
-      matcherStatus.dataset.status = 'offline';
-      matcherStatusText.textContent = '识别服务离线';
-      matcherStatus.title = '无法获取图案匹配服务状态';
       applyMatcherAvailability(false, '无法连接图案识别服务，暂时无法上传和匹配。');
       return false;
     } finally {
@@ -43,7 +43,7 @@ async function refreshMatcherStatus() {
   return statusRequest;
 }
 
-if (matcherStatus && matcherStatusText) {
+if (panelMatcherStatus && panelMatcherStatusText) {
   refreshMatcherStatus();
   window.setInterval(refreshMatcherStatus, 5000);
   document.addEventListener('visibilitychange', () => {
@@ -97,6 +97,8 @@ if (patternModal) {
 if (uploadForm) {
   const fileInput = document.querySelector("#patternFile");
   const fileLabel = document.querySelector("#fileLabel");
+  const dropZone = document.querySelector("#dropZone");
+  const matchSteps = document.querySelectorAll("#matchSteps .match-step");
   const progressView = document.querySelector("#progressView");
   const progressBar = document.querySelector("#progressBar");
   const progressValue = document.querySelector("#progressValue");
@@ -115,8 +117,42 @@ if (uploadForm) {
   let uploadFileName = "";
   let matchStatus = "unknown";
 
+  function setMatchStep(activeStep) {
+    matchSteps.forEach((step) => {
+      const stepNumber = Number(step.dataset.step);
+      step.classList.toggle('is-active', stepNumber === activeStep);
+      step.classList.toggle('is-complete', stepNumber < activeStep);
+      if (stepNumber === activeStep) step.setAttribute('aria-current', 'step');
+      else step.removeAttribute('aria-current');
+    });
+  }
+
   fileInput.addEventListener("change", () => {
-    fileLabel.textContent = fileInput.files[0]?.name || "选择或拖入客户参考图";
+    fileLabel.textContent = fileInput.files[0]?.name || "拖拽或选择客户参考图";
+  });
+
+  ['dragenter', 'dragover'].forEach((eventName) => {
+    dropZone.addEventListener(eventName, (event) => {
+      event.preventDefault();
+      if (!fileInput.disabled) dropZone.classList.add('is-dragover');
+    });
+  });
+
+  ['dragleave', 'drop'].forEach((eventName) => {
+    dropZone.addEventListener(eventName, (event) => {
+      event.preventDefault();
+      dropZone.classList.remove('is-dragover');
+    });
+  });
+
+  dropZone.addEventListener('drop', (event) => {
+    if (fileInput.disabled) return;
+    const file = event.dataTransfer?.files[0];
+    if (!file || !file.type.startsWith('image/')) return;
+    const transfer = new DataTransfer();
+    transfer.items.add(file);
+    fileInput.files = transfer.files;
+    fileLabel.textContent = file.name;
   });
 
   function setProgress(value) {
@@ -156,6 +192,7 @@ if (uploadForm) {
     const serviceOnline = await refreshMatcherStatus();
     if (!serviceOnline || !matcherOnline) return;
 
+    setMatchStep(2);
     uploadFileName = fileInput.files[0].name;
     uploadForm.hidden = true;
     resultView.hidden = true;
@@ -176,6 +213,7 @@ if (uploadForm) {
       await new Promise((resolve) => window.setTimeout(resolve, 280));
       progressView.hidden = true;
       resultView.hidden = false;
+      setMatchStep(3);
       workOrderQuestion.hidden = true;
       customerForm.hidden = true;
       previewAction.hidden = true;
@@ -198,6 +236,7 @@ if (uploadForm) {
     } catch (error) {
       progressView.hidden = true;
       resultView.hidden = false;
+      setMatchStep(3);
       resultImageWrap.hidden = true;
       confirmActions.hidden = true;
       resultTitle.textContent = "识别未完成";
@@ -260,12 +299,13 @@ if (uploadForm) {
 
   resetFinder.addEventListener("click", () => {
     uploadForm.reset();
-    fileLabel.textContent = "选择或拖入客户参考图";
+    fileLabel.textContent = "拖拽或选择客户参考图";
     uploadForm.hidden = false;
     progressView.hidden = true;
     resultView.hidden = true;
     customerForm.reset();
     matchStatus = "unknown";
+    setMatchStep(1);
     window.location.hash = "recognition";
   });
 }

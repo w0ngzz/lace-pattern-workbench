@@ -8,5 +8,7 @@ __pycache__
 .pytest_cache
 uploads
 data
+!pattern/library/data
+!pattern/library/data/**
 tests
 *.md

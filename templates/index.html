@@ -46,32 +46,64 @@
     {% endfor %}
   </div>
   {% else %}
-  <div class="empty-library">pattern 文件夹中暂时没有可展示的图案。</div>
+  <div class="empty-library">pattern/top10 文件夹中暂时没有可展示的图案。</div>
   {% endif %}
+
+  <div class="library-entry">
+    <a class="library-browse-button" href="{{ url_for('library_page') }}">
+      <span class="library-browse-index">MATERIAL ARCHIVE · 001—080</span>
+      <strong>浏览本店素材库</strong>
+      <small>按花纹类型、款式阶段与销售表现查找可用蕾丝素材</small>
+      <span class="library-browse-arrow" aria-hidden="true">↗</span>
+    </a>
+  </div>
 </section>
 
 <section class="recognition" id="recognition">
-  <div class="recognition-intro">
-    <p class="eyebrow light">PATTERN FINDER</p>
-    <h2>图案匹配</h2>
-    <p>上传客户提供的蕾丝参考图，当前测试版会根据文件名在素材库中查找同名款式。</p>
-    <div class="process-notes">
-      <span>01 上传图案</span>
-      <span>02 素材匹配</span>
-      <span>03 确认结果</span>
+  <header class="matcher-card-head">
+    <div class="matcher-card-title">
+      <p class="eyebrow">LACE PATTERN FINDER</p>
+      <h2>客户图案智能匹配</h2>
+      <p>上传客户参考图，快速匹配面料素材并生成沟通依据</p>
     </div>
-  </div>
+    <div class="matcher-utilities" aria-label="匹配工具状态">
+      <span class="matcher-service-pill" id="panelMatcherStatus" data-status="checking" role="status" aria-live="polite">
+        <span class="matcher-service-dot" aria-hidden="true"></span>
+        <span id="panelMatcherStatusText">服务检测中</span>
+      </span>
+      <button class="matcher-utility-button" type="button" aria-disabled="true" title="历史记录功能即将开放">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5M12 7v5l3 2"/></svg>
+        <span>历史记录</span>
+      </button>
+      <button class="matcher-utility-button" type="button" aria-disabled="true" title="使用指南功能即将开放">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 3h11a2 2 0 0 1 2 2v16H7a2 2 0 0 1-2-2V4a1 1 0 0 1 1-1Z"/><path d="M8 7h7M8 11h7M8 15h4"/></svg>
+        <span>使用指南</span>
+      </button>
+    </div>
+  </header>
+
+  <ol class="match-steps" id="matchSteps" aria-label="图案匹配流程">
+    <li class="match-step is-active" data-step="1"><span>1</span><strong>上传参考图</strong></li>
+    <li class="match-step" data-step="2"><span>2</span><strong>智能匹配</strong></li>
+    <li class="match-step" data-step="3"><span>3</span><strong>确认结果</strong></li>
+  </ol>
 
   <div class="finder-panel" id="finderPanel">
     <form id="uploadForm" class="upload-form">
       <p class="matcher-availability" id="matcherAvailability" role="alert">正在检查图案识别服务状态…</p>
-      <label class="drop-zone" id="dropZone" for="patternFile">
-        <input id="patternFile" name="pattern" type="file" accept="image/png,image/jpeg,image/webp,image/bmp" required disabled>
-        <span class="upload-icon">＋</span>
-        <strong id="fileLabel">选择或拖入客户参考图</strong>
-        <small>支持 PNG / JPG / WEBP / BMP，最大 12 MB</small>
-      </label>
-      <button class="primary-button" id="matchButton" type="submit" disabled>开始识别图案</button>
+      <div class="upload-stage">
+        <label class="drop-zone" id="dropZone" for="patternFile">
+          <input id="patternFile" name="pattern" type="file" accept="image/png,image/jpeg,image/webp,image/bmp" required disabled>
+          <span class="upload-cloud" aria-hidden="true">
+            <svg viewBox="0 0 64 64"><path d="M19 46h-3a11 11 0 0 1-1-22 17 17 0 0 1 32-2 12 12 0 0 1 1 24h-4"/><path d="M32 50V29m-8 8 8-8 8 8"/></svg>
+          </span>
+          <strong id="fileLabel">拖拽或选择客户参考图</strong>
+          <small>支持 PNG / JPG / WEBP / BMP，最大 12 MB</small>
+        </label>
+        <button class="primary-button match-start-button" id="matchButton" type="submit" disabled>
+          <span aria-hidden="true">✦</span>开始智能匹配
+        </button>
+      </div>
     </form>
 
     <div class="progress-view" id="progressView" hidden aria-live="polite">
