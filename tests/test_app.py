@@ -114,6 +114,7 @@ class LaceWebsiteTests(unittest.TestCase):
         return self.client.post(
             "/api/match",
             data={"pattern": (io.BytesIO(b"test image payload"), filename)},
+            headers={"X-Match-Client-Version": lace_app.MATCH_CLIENT_VERSION},
             content_type="multipart/form-data",
         )
 
@@ -137,6 +138,7 @@ class LaceWebsiteTests(unittest.TestCase):
         self.assertIn("蕾智创库", body)
         self.assertIn("images/logo.svg", body)
         self.assertIn("images/favicon.svg", body)
+        self.assertRegex(body, r"/static/js/app\.js\?v=[0-9a-f]+")
         self.assertNotIn('id="matcherStatus"', body)
         self.assertIn("本月精选", body)
         self.assertIn("Top 10", body)
@@ -174,6 +176,16 @@ class LaceWebsiteTests(unittest.TestCase):
         pending = self.client.get(f"/api/match-results/{payload['requestId']}")
         self.assertEqual(pending.status_code, 202)
         self.assertEqual(pending.get_json()["status"], "processing")
+
+    def test_stale_frontend_cannot_submit_match_job(self):
+        response = self.client.post(
+            "/api/match",
+            data={"pattern": (io.BytesIO(b"test image payload"), "customer.png")},
+            content_type="multipart/form-data",
+        )
+        self.assertEqual(response.status_code, 409)
+        self.assertIn("刷新页面", response.get_json()["message"])
+        self.assertFalse(self.matcher_request_dir.exists())
 
     def test_worker_match_result_is_returned_to_browser(self):
         submitted = self.upload("customer.png").get_json()

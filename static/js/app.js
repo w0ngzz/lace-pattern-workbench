@@ -217,7 +217,11 @@ if (uploadForm) {
     try {
       const formData = new FormData();
       formData.append("pattern", fileInput.files[0]);
-      const response = await fetch("/api/match", { method: "POST", body: formData });
+      const response = await fetch("/api/match", {
+        method: "POST",
+        headers: { "X-Match-Client-Version": "worker-results-v1" },
+        body: formData,
+      });
       const submission = await response.json();
       if (!response.ok) throw new Error(submission.message || "识别请求失败，请稍后重试。");
       if (!submission.requestId) throw new Error("识别任务创建失败，未返回任务编号。");

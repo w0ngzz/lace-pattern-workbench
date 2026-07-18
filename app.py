@@ -39,6 +39,7 @@ MATCHER_STATUS_MAX_AGE_SECONDS = 12
 MATCHER_RESULT_TIMEOUT_SECONDS = 120
 MATCHER_ARTIFACT_RETENTION_SECONDS = 60 * 60
 MATCH_FILE_URL_TTL_SECONDS = 10 * 60
+MATCH_CLIENT_VERSION = "worker-results-v1"
 
 ALLOWED_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp", ".bmp"}
 MAX_UPLOAD_SIZE = 12 * 1024 * 1024
@@ -110,6 +111,29 @@ app = Flask(__name__)
 app.config["MAX_CONTENT_LENGTH"] = MAX_UPLOAD_SIZE
 app.config["PUBLIC_BASE_URL"] = os.environ.get("PUBLIC_BASE_URL", "").rstrip("/")
 app.config["MATCH_FILE_SECRET"] = os.environ.get("MATCH_FILE_SECRET", "")
+
+
+def static_url(filename: str) -> str:
+    asset_path = BASE_DIR / "static" / filename
+    try:
+        version = f"{asset_path.stat().st_mtime_ns:x}"
+    except OSError:
+        version = "missing"
+    return url_for("static", filename=filename, v=version)
+
+
+app.jinja_env.globals["static_url"] = static_url
+
+
+@app.after_request
+def set_response_cache_policy(response):
+    if request.path.startswith("/static/"):
+        response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+    elif (
+        response.mimetype == "text/html" or request.path.startswith("/api/")
+    ) and "Cache-Control" not in response.headers:
+        response.headers["Cache-Control"] = "no-store"
+    return response
 
 
 def natural_sort_key(path: Path) -> tuple[int, int | str]:
@@ -578,6 +602,14 @@ def match_result(request_id: str):
 
 @app.post("/api/match")
 def match_pattern():
+    if request.headers.get("X-Match-Client-Version") != MATCH_CLIENT_VERSION:
+        return jsonify(
+            {
+                "ok": False,
+                "message": "页面版本已更新，请刷新页面后重新上传图案。",
+            }
+        ), 409
+
     if not current_matcher_status()["online"]:
         return jsonify({"ok": False, "message": "图案识别服务当前不在线，暂时无法匹配。"}), 503
 

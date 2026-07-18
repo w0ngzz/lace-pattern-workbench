@@ -6,13 +6,13 @@
   <meta name="description" content="本月蕾丝图案精选与图案匹配服务">
   <meta name="theme-color" content="#f3efe7">
   <title>{% block title %}蕾智创库 · 蕾丝图案精选{% endblock %}</title>
-  <link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='images/favicon.svg') }}">
-  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+  <link rel="icon" type="image/svg+xml" href="{{ static_url('images/favicon.svg') }}">
+  <link rel="stylesheet" href="{{ static_url('css/style.css') }}">
 </head>
 <body>
   <header class="site-header">
     <a class="brand" href="{{ url_for('index') }}" aria-label="返回首页">
-      <img class="brand-logo" src="{{ url_for('static', filename='images/logo.svg') }}" alt="" width="54" height="54">
+      <img class="brand-logo" src="{{ static_url('images/logo.svg') }}" alt="" width="54" height="54">
       <span class="brand-wordmark"><strong>蕾智创库</strong><small>LACE DESIGN WORKBENCH</small></span>
     </a>
     <nav class="site-nav" aria-label="主导航">
@@ -26,7 +26,7 @@
     <span>蕾智创库 · 蕾丝设计参考库</span>
     <span>以纹理连接灵感与成衣</span>
   </footer>
-  <script src="{{ url_for('static', filename='js/app.js') }}" defer></script>
+  <script src="{{ static_url('js/app.js') }}" defer></script>
   {% block scripts %}{% endblock %}
 </body>
 </html>
