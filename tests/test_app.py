@@ -4,6 +4,7 @@ import tempfile
 import time
 import unittest
 from pathlib import Path
+from urllib.parse import urlsplit
 
 from PIL import Image
 
@@ -70,7 +71,15 @@ class LaceWebsiteTests(unittest.TestCase):
         lace_app.WORK_ORDERS_FILE = self.work_orders_file
         lace_app.MATCHER_STATE_FILE = self.matcher_state_file
         lace_app.MATCHER_REQUEST_DIR = self.matcher_request_dir
-        lace_app.app.config.update(TESTING=True)
+        self.original_download_config = (
+            lace_app.app.config.get("PUBLIC_BASE_URL"),
+            lace_app.app.config.get("MATCH_FILE_SECRET"),
+        )
+        lace_app.app.config.update(
+            TESTING=True,
+            PUBLIC_BASE_URL="https://rbcc.test",
+            MATCH_FILE_SECRET="test-match-file-secret",
+        )
         self.client = lace_app.app.test_client()
 
     def tearDown(self):
@@ -87,6 +96,10 @@ class LaceWebsiteTests(unittest.TestCase):
             lace_app.MATCHER_STATE_FILE,
             lace_app.MATCHER_REQUEST_DIR,
         ) = self.original_paths
+        (
+            lace_app.app.config["PUBLIC_BASE_URL"],
+            lace_app.app.config["MATCH_FILE_SECRET"],
+        ) = self.original_download_config
         self.temp_dir.cleanup()
 
     def upload(self, filename):
@@ -131,6 +144,31 @@ class LaceWebsiteTests(unittest.TestCase):
         requests = list(self.matcher_request_dir.glob("*.json"))
         self.assertEqual(len(requests), 2)
         self.assertTrue(all(json.loads(path.read_text(encoding="utf-8"))["type"] == "match_request" for path in requests))
+        self.assertTrue(
+            all(
+                json.loads(path.read_text(encoding="utf-8"))["downloadUrl"].startswith(
+                    "https://rbcc.test/api/match-files/"
+                )
+                for path in requests
+            )
+        )
+
+    def test_worker_download_link_returns_uploaded_file(self):
+        response = self.upload("customer.png")
+        self.assertEqual(response.status_code, 200)
+        request_file = next(self.matcher_request_dir.glob("*.json"))
+        payload = json.loads(request_file.read_text(encoding="utf-8"))
+        parsed_url = urlsplit(payload["downloadUrl"])
+
+        download = self.client.get(f"{parsed_url.path}?{parsed_url.query}")
+        self.assertEqual(download.status_code, 200)
+        self.assertEqual(download.data, b"test image payload")
+        self.assertEqual(download.headers["Cache-Control"], "private, no-store")
+        download.close()
+
+        rejected = self.client.get(f"{parsed_url.path}?expires=0&signature=invalid")
+        self.assertEqual(rejected.status_code, 403)
+        rejected.close()
 
     def test_matching_is_rejected_when_worker_is_offline(self):
         self.matcher_state_file.write_text(

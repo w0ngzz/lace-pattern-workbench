@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 import csv
+import hashlib
+import hmac
 import json
+import os
 import re
 import socket
 import subprocess
@@ -10,6 +13,7 @@ import time
 import uuid
 from datetime import datetime
 from pathlib import Path
+from urllib.parse import urlencode
 
 from flask import Flask, abort, jsonify, render_template, request, send_file, url_for
 from PIL import Image, ImageOps
@@ -30,6 +34,7 @@ WORK_ORDERS_FILE = DATA_DIR / "design_work_orders.jsonl"
 MATCHER_STATE_FILE = BASE_DIR / ".runtime" / "matcher_status.json"
 MATCHER_REQUEST_DIR = BASE_DIR / ".runtime" / "match_requests"
 MATCHER_STATUS_MAX_AGE_SECONDS = 12
+MATCH_FILE_URL_TTL_SECONDS = 10 * 60
 
 ALLOWED_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp", ".bmp"}
 MAX_UPLOAD_SIZE = 12 * 1024 * 1024
@@ -99,6 +104,8 @@ PATTERN_DETAILS = [
 
 app = Flask(__name__)
 app.config["MAX_CONTENT_LENGTH"] = MAX_UPLOAD_SIZE
+app.config["PUBLIC_BASE_URL"] = os.environ.get("PUBLIC_BASE_URL", "").rstrip("/")
+app.config["MATCH_FILE_SECRET"] = os.environ.get("MATCH_FILE_SECRET", "")
 
 
 def natural_sort_key(path: Path) -> tuple[int, int | str]:
@@ -365,6 +372,53 @@ def send_pattern_thumbnail(directory: Path, filename: str):
     return send_file(cached, mimetype="image/webp", conditional=True, max_age=3600)
 
 
+def match_file_signature(filename: str, expires: int) -> str:
+    secret = str(app.config.get("MATCH_FILE_SECRET") or "").encode("utf-8")
+    message = f"{filename}\n{expires}".encode("utf-8")
+    return hmac.new(secret, message, hashlib.sha256).hexdigest()
+
+
+def match_file_download_url(filename: str) -> str:
+    expires = int(time.time()) + MATCH_FILE_URL_TTL_SECONDS
+    signature = match_file_signature(filename, expires)
+    base_url = str(app.config.get("PUBLIC_BASE_URL") or request.url_root).rstrip("/")
+    query = urlencode({"expires": expires, "signature": signature})
+    return f"{base_url}/api/match-files/{filename}?{query}"
+
+
+@app.get("/api/match-files/<path:filename>")
+def download_match_file(filename: str):
+    safe_name = Path(filename).name
+    if safe_name != filename or not app.config.get("MATCH_FILE_SECRET"):
+        abort(404)
+
+    try:
+        expires = int(request.args.get("expires", ""))
+    except ValueError:
+        abort(403)
+
+    supplied_signature = request.args.get("signature", "")
+    expected_signature = match_file_signature(safe_name, expires)
+    if expires < int(time.time()) or not hmac.compare_digest(
+        supplied_signature,
+        expected_signature,
+    ):
+        abort(403)
+
+    source = UPLOAD_DIR / safe_name
+    if not source.is_file() or source.suffix.lower() not in ALLOWED_EXTENSIONS:
+        abort(404)
+
+    response = send_file(
+        source,
+        conditional=True,
+        as_attachment=True,
+        download_name=safe_name,
+    )
+    response.headers["Cache-Control"] = "private, no-store"
+    return response
+
+
 @app.post("/api/match")
 def match_pattern():
     if not current_matcher_status()["online"]:
@@ -378,6 +432,8 @@ def match_pattern():
     extension = Path(original_name).suffix.lower()
     if extension not in ALLOWED_EXTENSIONS:
         return jsonify({"ok": False, "message": "仅支持 PNG、JPG、WEBP 或 BMP 图片。"}), 400
+    if not app.config.get("MATCH_FILE_SECRET"):
+        return jsonify({"ok": False, "message": "图案下载服务尚未配置，暂时无法匹配。"}), 503
 
     UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
     stored_name = f"{uuid.uuid4().hex}{extension}"
@@ -389,7 +445,8 @@ def match_pattern():
         "type": "match_request",
         "requestId": request_id,
         "fileName": original_name,
-        "message": "hello world",
+        "storedName": stored_name,
+        "downloadUrl": match_file_download_url(stored_name),
         "createdAt": datetime.now().astimezone().isoformat(timespec="seconds"),
     }
     request_file = MATCHER_REQUEST_DIR / f"{request_id}.json"

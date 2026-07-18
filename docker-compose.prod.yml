@@ -3,6 +3,9 @@ services:
     image: ${LACE_IMAGE:-w0ngzz/lace-pattern-workbench:latest}
     container_name: lace-pattern-web
     restart: unless-stopped
+    environment:
+      PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-https://rbcc.302922.xyz}
+      MATCH_FILE_SECRET: ${MATCH_FILE_SECRET:?MATCH_FILE_SECRET must be set}
     volumes:
       - lace-pattern-runtime:/app/.runtime
       - lace-pattern-data:/app/data

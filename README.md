@@ -37,6 +37,8 @@ DOCKERHUB_USERNAME/lace-pattern-workbench:latest
 ```bash
 docker pull DOCKERHUB_USERNAME/lace-pattern-workbench:latest
 docker run -d --name lace-pattern -p 5000:5000 \
+  -e PUBLIC_BASE_URL=https://rbcc.302922.xyz \
+  -e MATCH_FILE_SECRET=replace-with-a-long-random-secret \
   -v lace-data:/app/data \
   -v lace-uploads:/app/uploads \
   --restart unless-stopped \
@@ -50,6 +52,7 @@ docker run -d --name lace-pattern -p 5000:5000 \
 - 素材库缩略图：存放在 `pattern/library/pic/thumbnails`，文件名格式为 `1_thumb.jpg`。
 - 素材数据：存放在 `pattern/library/data`，素材库页面会读取其中的季度 CSV。
 - 匹配规则：上传文件名与 `pattern/library/pic/originals` 中的文件名相同即匹配成功。
+- Worker 下载：后端为上传图案生成 10 分钟有效的签名下载链接，并随匹配任务发送。
 - 提交约定：`pattern/library` 下的网站基础数据、原图和缩略图提交到 Git，并随 Docker 镜像发布。
 - 匹配进度：前端通过约 2 至 3 秒的延时模拟。
 - 成衣预览：目前是占位页面。
