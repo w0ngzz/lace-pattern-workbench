@@ -1,4 +1,46 @@
 const uploadForm = document.querySelector("#uploadForm");
+const patternModal = document.querySelector('#patternModal');
+
+if (patternModal) {
+  const modalImage = document.querySelector('#modalPatternImage');
+  const modalTitle = document.querySelector('#modalPatternTitle');
+  const modalDescription = document.querySelector('#modalPatternDescription');
+  const modalReason = document.querySelector('#modalPatternReason');
+  const modalApplication = document.querySelector('#modalPatternApplication');
+  const modalCloseButton = patternModal.querySelector('.pattern-modal-close');
+  let activePatternTrigger = null;
+
+  function openPatternModal(trigger) {
+    activePatternTrigger = trigger;
+    modalImage.src = trigger.dataset.image;
+    modalImage.alt = `${trigger.dataset.title}蕾丝图案详情`;
+    modalTitle.textContent = trigger.dataset.title;
+    modalDescription.textContent = trigger.dataset.description;
+    modalReason.textContent = trigger.dataset.reason;
+    modalApplication.textContent = trigger.dataset.application;
+    patternModal.hidden = false;
+    document.body.classList.add('modal-open');
+    modalCloseButton.focus();
+  }
+
+  function closePatternModal() {
+    patternModal.hidden = true;
+    document.body.classList.remove('modal-open');
+    activePatternTrigger?.focus();
+  }
+
+  document.querySelectorAll('.pattern-detail-trigger').forEach((trigger) => {
+    trigger.addEventListener('click', () => openPatternModal(trigger));
+  });
+
+  patternModal.querySelectorAll('[data-close-pattern-modal]').forEach((button) => {
+    button.addEventListener('click', closePatternModal);
+  });
+
+  document.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape' && !patternModal.hidden) closePatternModal();
+  });
+}
 
 if (uploadForm) {
   const fileInput = document.querySelector("#patternFile");

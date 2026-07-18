@@ -21,6 +21,69 @@ WORK_ORDERS_FILE = DATA_DIR / "design_work_orders.jsonl"
 ALLOWED_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp", ".bmp"}
 MAX_UPLOAD_SIZE = 12 * 1024 * 1024
 
+PATTERN_DETAILS = [
+    {
+        'title': '珍珠枝蔓',
+        'reason': '枝叶走向清晰，精致装饰感与留白比例平衡。',
+        'description': '以舒展枝蔓为主线，局部点状元素形成视觉停顿，适合强调轻盈、精致的高级感。',
+        'application': '礼服局部、婚纱上身、袖片与领口装饰',
+    },
+    {
+        'title': '密织花庭',
+        'reason': '花叶层次丰富，近看细节充足，远看轮廓完整。',
+        'description': '中等密度的花叶纹样保持连续节奏，在成衣大面积使用时仍具有稳定的视觉秩序。',
+        'application': '连衣裙、半裙、轻礼服与面料拼接',
+    },
+    {
+        'title': '几何花网',
+        'reason': '几何骨架与自然花型结合，现代感更突出。',
+        'description': '规则网格承担结构，花卉元素柔化边界，适合在经典蕾丝基础上表达年轻化方向。',
+        'application': '时装上衣、套装内搭、局部透视设计',
+    },
+    {
+        'title': '轻透散花',
+        'reason': '图案分布疏朗，能够保留底层面料和肤色的呼吸感。',
+        'description': '小型花簇以散点方式排列，留白充分，适合需要轻量感和层次叠穿的设计。',
+        'application': '罩衫、袖片、肩部拼接与春夏裙装',
+    },
+    {
+        'title': '浮雕团花',
+        'reason': '主体花型识别度高，适合作为系列设计的视觉记忆点。',
+        'description': '以饱满团花形成中心视觉，纹理密度由内向外递减，具有较强的立体浮雕感。',
+        'application': '礼服重点部位、胸前装饰、裙摆定位花',
+    },
+    {
+        'title': '对称藤蔓',
+        'reason': '对称结构便于裁片定位，也更容易控制成衣视觉重心。',
+        'description': '藤蔓沿轴线展开，节奏稳定而不呆板，可用于强调身体纵向线条和结构比例。',
+        'application': '前中片、后背、门襟与纵向拼接',
+    },
+    {
+        'title': '盛放大花',
+        'reason': '大尺度花型具有舞台感，少量使用即可建立设计焦点。',
+        'description': '放大的花瓣轮廓与细密内部纹理形成尺度反差，适合简洁廓形中的重点表达。',
+        'application': '晚礼服、舞台服、裙摆和披肩',
+    },
+    {
+        'title': '叶脉流线',
+        'reason': '线性方向明确，能够自然引导裁剪和拼接走向。',
+        'description': '叶片与细长茎线构成流动轨迹，视觉轻快，适合与不对称结构结合。',
+        'application': '斜裁裙装、不对称上衣、袖口与侧片',
+    },
+    {
+        'title': '留白小花',
+        'reason': '小花与留白比例克制，商业应用范围较广。',
+        'description': '低密度小型花卉形成安静表面，既能单独使用，也适合与其他材质叠搭。',
+        'application': '日常女装、衬衫、童装与配饰',
+    },
+    {
+        'title': '华丽满幅',
+        'reason': '满幅纹理完成度高，适合快速建立系列中的高价值款。',
+        'description': '连续花叶覆盖画面并保持层次变化，整体华丽但仍有可辨识的纹样节奏。',
+        'application': '主推礼服、婚纱裙身、外套与陈列样衣',
+    },
+]
+
 app = Flask(__name__)
 app.config["MAX_CONTENT_LENGTH"] = MAX_UPLOAD_SIZE
 
@@ -61,6 +124,7 @@ def index():
             "rank": rank,
             "name": path.name,
             "image_url": url_for("pattern_image", filename=path.name),
+            **PATTERN_DETAILS[rank - 1],
         }
         for rank, path in enumerate(files, start=1)
     ]

@@ -1,45 +1,45 @@
 {% extends "base.html" %}
 
 {% block content %}
-<section class="hero">
-  <div class="hero-copy reveal">
-    <p class="eyebrow">MONTHLY LACE EDIT · 01—10</p>
-    <h1>本月值得<br><em>参考的蕾丝</em></h1>
-    <p class="hero-intro">面向面料与服装设计人员，从肌理、密度与花型节奏中，挑选十款能够启发下一季设计的蕾丝图案。</p>
-    <a class="text-link" href="#collection">浏览本月精选 <span>↓</span></a>
-  </div>
-  <div class="hero-art reveal delay-one" aria-hidden="true">
-    {% if patterns %}
-    <img src="{{ patterns[0].image_url }}" alt="">
-    {% endif %}
-    <div class="hero-stamp"><span>TOP</span><strong>10</strong><small>{{ month_label }}</small></div>
-  </div>
-  <div class="hero-note reveal delay-two">
-    <span>统一更新时间</span>
-    <strong>{{ updated_at }}</strong>
-    <small>本期图案为同一批次更新</small>
-  </div>
-</section>
-
+<section class="design-workbench">
 <section class="collection" id="collection">
   <div class="section-heading">
     <div>
-      <p class="eyebrow">CURATED PATTERNS</p>
-      <h2>本月精选图案</h2>
+      <p class="eyebrow">MONTHLY LACE EDIT · 01—10</p>
+      <h1>本月精选 <em>Top 10</em></h1>
+      <p class="collection-summary">为面料与服装设计人员精选的蕾丝纹样，按序号陈列。</p>
     </div>
-    <p>10 款 / 同一批次 / 按序号陈列</p>
+    <div class="collection-status">
+      <span>{{ month_label }}</span>
+      <strong>{{ updated_at }}</strong>
+      <small>本期图案统一更新时间</small>
+    </div>
   </div>
 
   {% if patterns %}
   <div class="pattern-grid">
     {% for pattern in patterns %}
     <article class="pattern-card reveal-card">
-      <div class="pattern-image">
+      <button
+        class="pattern-image pattern-detail-trigger"
+        type="button"
+        data-title="{{ pattern.title|e }}"
+        data-description="{{ pattern.description|e }}"
+        data-reason="{{ pattern.reason|e }}"
+        data-application="{{ pattern.application|e }}"
+        data-image="{{ pattern.image_url }}"
+        aria-label="查看{{ pattern.title }}详情"
+      >
         <img src="{{ pattern.image_url }}" alt="蕾丝图案 {{ pattern.name }}" loading="lazy">
         <span class="rank">{{ "%02d"|format(pattern.rank) }}</span>
-      </div>
+        <span class="pattern-hover">
+          <small>推荐理由</small>
+          <strong>{{ pattern.reason }}</strong>
+          <em>点击查看详情</em>
+        </span>
+      </button>
       <div class="pattern-meta">
-        <h3>纹样 {{ "%02d"|format(pattern.rank) }}</h3>
+        <h3>{{ pattern.title }}</h3>
         <span>{{ pattern.name }}</span>
       </div>
     </article>
@@ -53,7 +53,7 @@
 <section class="recognition" id="recognition">
   <div class="recognition-intro">
     <p class="eyebrow light">PATTERN FINDER</p>
-    <h2>带着你的灵感来，<br>我们替你寻找相近纹样。</h2>
+    <h2>图案匹配</h2>
     <p>上传客户提供的蕾丝参考图，当前测试版会根据文件名在素材库中查找同名款式。</p>
     <div class="process-notes">
       <span>01 上传图案</span>
@@ -115,6 +115,31 @@
     </div>
   </div>
 </section>
+</section>
+
+<div class="pattern-modal" id="patternModal" hidden role="dialog" aria-modal="true" aria-labelledby="modalPatternTitle">
+  <button class="pattern-modal-backdrop" type="button" data-close-pattern-modal aria-label="关闭详情"></button>
+  <article class="pattern-modal-card">
+    <button class="pattern-modal-close" type="button" data-close-pattern-modal aria-label="关闭详情">×</button>
+    <div class="pattern-modal-image"><img id="modalPatternImage" alt="精选蕾丝图案详情"></div>
+    <div class="pattern-modal-content">
+      <p class="eyebrow">CURATED PATTERN DETAIL</p>
+      <h2 id="modalPatternTitle"></h2>
+      <div class="pattern-detail-block">
+        <span>样式描述</span>
+        <p id="modalPatternDescription"></p>
+      </div>
+      <div class="pattern-detail-block accent">
+        <span>推荐理由</span>
+        <p id="modalPatternReason"></p>
+      </div>
+      <div class="pattern-detail-block">
+        <span>适用方向</span>
+        <p id="modalPatternApplication"></p>
+      </div>
+    </div>
+  </article>
+</div>
 {% endblock %}
 
 {% block scripts %}
