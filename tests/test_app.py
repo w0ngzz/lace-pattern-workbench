@@ -30,6 +30,8 @@ class LaceWebsiteTests(unittest.TestCase):
         self.work_orders_file = self.data_dir / "design_work_orders.jsonl"
         self.matcher_state_file = root / "runtime" / "matcher_status.json"
         self.matcher_request_dir = root / "runtime" / "match_requests"
+        self.matcher_job_dir = root / "runtime" / "match_jobs"
+        self.matcher_result_dir = root / "runtime" / "match_results"
         self.matcher_state_file.parent.mkdir()
         self.matcher_state_file.write_text(
             json.dumps({"online": True, "workerId": "test-worker", "updatedAt": time.time()}),
@@ -59,6 +61,8 @@ class LaceWebsiteTests(unittest.TestCase):
             lace_app.WORK_ORDERS_FILE,
             lace_app.MATCHER_STATE_FILE,
             lace_app.MATCHER_REQUEST_DIR,
+            lace_app.MATCHER_JOB_DIR,
+            lace_app.MATCHER_RESULT_DIR,
         )
         lace_app.TOP10_DIR = self.top10_dir
         lace_app.MATERIAL_LIBRARY_DIR = self.library_dir
@@ -71,6 +75,8 @@ class LaceWebsiteTests(unittest.TestCase):
         lace_app.WORK_ORDERS_FILE = self.work_orders_file
         lace_app.MATCHER_STATE_FILE = self.matcher_state_file
         lace_app.MATCHER_REQUEST_DIR = self.matcher_request_dir
+        lace_app.MATCHER_JOB_DIR = self.matcher_job_dir
+        lace_app.MATCHER_RESULT_DIR = self.matcher_result_dir
         self.original_download_config = (
             lace_app.app.config.get("PUBLIC_BASE_URL"),
             lace_app.app.config.get("MATCH_FILE_SECRET"),
@@ -95,6 +101,8 @@ class LaceWebsiteTests(unittest.TestCase):
             lace_app.WORK_ORDERS_FILE,
             lace_app.MATCHER_STATE_FILE,
             lace_app.MATCHER_REQUEST_DIR,
+            lace_app.MATCHER_JOB_DIR,
+            lace_app.MATCHER_RESULT_DIR,
         ) = self.original_paths
         (
             lace_app.app.config["PUBLIC_BASE_URL"],
@@ -107,6 +115,19 @@ class LaceWebsiteTests(unittest.TestCase):
             "/api/match",
             data={"pattern": (io.BytesIO(b"test image payload"), filename)},
             content_type="multipart/form-data",
+        )
+
+    def save_worker_result(self, request_id, **result):
+        self.matcher_result_dir.mkdir(parents=True, exist_ok=True)
+        payload = {
+            "type": "match_result",
+            "requestId": request_id,
+            "workerId": "test-worker",
+            **result,
+        }
+        (self.matcher_result_dir / f"{request_id}.json").write_text(
+            json.dumps(payload),
+            encoding="utf-8",
         )
 
     def test_home_displays_only_top_ten(self):
@@ -134,28 +155,89 @@ class LaceWebsiteTests(unittest.TestCase):
         self.assertIn("10.png", body)
         self.assertNotIn("11.png", body)
 
-    def test_matching_uses_filename(self):
-        matched = self.upload("1.png")
-        missing = self.upload("unknown.png")
-        self.assertTrue(matched.get_json()["matched"])
-        self.assertEqual(matched.get_json()["message"], "匹配成功")
-        self.assertFalse(missing.get_json()["matched"])
-        self.assertEqual(missing.get_json()["message"], "暂未找到您想要的款式")
-        requests = list(self.matcher_request_dir.glob("*.json"))
-        self.assertEqual(len(requests), 2)
-        self.assertTrue(all(json.loads(path.read_text(encoding="utf-8"))["type"] == "match_request" for path in requests))
-        self.assertTrue(
-            all(
-                json.loads(path.read_text(encoding="utf-8"))["downloadUrl"].startswith(
-                    "https://rbcc.test/api/match-files/"
-                )
-                for path in requests
-            )
+    def test_matching_creates_worker_job_and_starts_processing(self):
+        response = self.upload("customer.png")
+        payload = response.get_json()
+        self.assertEqual(response.status_code, 202)
+        self.assertTrue(payload["ok"])
+        self.assertEqual(payload["status"], "processing")
+        self.assertRegex(payload["requestId"], r"^[a-f0-9]{32}$")
+
+        request_payload = json.loads(
+            (self.matcher_request_dir / f"{payload['requestId']}.json").read_text(encoding="utf-8")
         )
+        self.assertEqual(request_payload["type"], "match_request")
+        self.assertEqual(request_payload["fileName"], "customer.png")
+        self.assertTrue(request_payload["downloadUrl"].startswith("https://rbcc.test/api/match-files/"))
+        self.assertTrue((self.matcher_job_dir / f"{payload['requestId']}.json").is_file())
+
+        pending = self.client.get(f"/api/match-results/{payload['requestId']}")
+        self.assertEqual(pending.status_code, 202)
+        self.assertEqual(pending.get_json()["status"], "processing")
+
+    def test_worker_match_result_is_returned_to_browser(self):
+        submitted = self.upload("customer.png").get_json()
+        self.save_worker_result(
+            submitted["requestId"],
+            ok=True,
+            matched=True,
+            matches=[{"imageIndex": 1, "similarity": 0.9231}],
+            elapsedMs=1260,
+            modelVersion="lace-v1",
+        )
+
+        response = self.client.get(f"/api/match-results/{submitted['requestId']}")
+        payload = response.get_json()
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(payload["status"], "completed")
+        self.assertTrue(payload["matched"])
+        self.assertEqual(payload["imageIndex"], 1)
+        self.assertEqual(payload["matchedFileName"], "1.png")
+        self.assertEqual(payload["similarity"], 0.9231)
+        self.assertEqual(payload["matchedImage"], "/library-images/1.png")
+        self.assertEqual(payload["modelVersion"], "lace-v1")
+
+    def test_worker_no_match_result_is_returned_to_browser(self):
+        submitted = self.upload("customer.png").get_json()
+        self.save_worker_result(
+            submitted["requestId"],
+            ok=True,
+            matched=False,
+            matches=[],
+        )
+
+        response = self.client.get(f"/api/match-results/{submitted['requestId']}")
+        payload = response.get_json()
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(payload["matched"])
+        self.assertEqual(payload["message"], "暂未找到您想要的款式")
+
+    def test_worker_error_is_returned_to_browser(self):
+        submitted = self.upload("customer.png").get_json()
+        self.save_worker_result(
+            submitted["requestId"],
+            ok=False,
+            error={"code": "MODEL_ERROR", "message": "模型加载失败", "retryable": False},
+        )
+
+        response = self.client.get(f"/api/match-results/{submitted['requestId']}")
+        self.assertEqual(response.status_code, 502)
+        self.assertEqual(response.get_json()["message"], "模型加载失败")
+
+    def test_match_result_times_out_without_worker_reply(self):
+        submitted = self.upload("customer.png").get_json()
+        job_file = self.matcher_job_dir / f"{submitted['requestId']}.json"
+        job = json.loads(job_file.read_text(encoding="utf-8"))
+        job["createdAtEpoch"] = time.time() - lace_app.MATCHER_RESULT_TIMEOUT_SECONDS - 1
+        job_file.write_text(json.dumps(job), encoding="utf-8")
+
+        response = self.client.get(f"/api/match-results/{submitted['requestId']}")
+        self.assertEqual(response.status_code, 504)
+        self.assertEqual(response.get_json()["status"], "timeout")
 
     def test_worker_download_link_returns_uploaded_file(self):
         response = self.upload("customer.png")
-        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.status_code, 202)
         request_file = next(self.matcher_request_dir.glob("*.json"))
         payload = json.loads(request_file.read_text(encoding="utf-8"))
         parsed_url = urlsplit(payload["downloadUrl"])

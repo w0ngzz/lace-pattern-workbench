@@ -2,6 +2,7 @@ import asyncio
 import hmac
 import json
 import os
+import re
 import time
 from contextlib import suppress
 from pathlib import Path
@@ -15,6 +16,9 @@ PORT = int(os.getenv("MATCHER_GATEWAY_PORT", "8765"))
 MATCHER_TOKEN = os.getenv("MATCHER_TOKEN", "")
 STATE_FILE = BASE_DIR / ".runtime" / "matcher_status.json"
 REQUEST_DIR = BASE_DIR / ".runtime" / "match_requests"
+JOB_DIR = BASE_DIR / ".runtime" / "match_jobs"
+RESULT_DIR = BASE_DIR / ".runtime" / "match_results"
+MAX_WORKER_MESSAGE_SIZE = 128 * 1024
 
 
 def write_state(online: bool, worker_id: str | None = None) -> None:
@@ -51,6 +55,30 @@ async def forward_match_requests(connection) -> None:
         await asyncio.sleep(0.2)
 
 
+def save_match_result(payload: dict, worker_id: str) -> str:
+    request_id = str(payload.get("requestId", ""))
+    if not re.fullmatch(r"[a-f0-9]{32}", request_id):
+        raise ValueError("invalid requestId")
+    if not (JOB_DIR / f"{request_id}.json").is_file():
+        raise ValueError("unknown requestId")
+
+    normalized = dict(payload)
+    normalized["type"] = "match_result"
+    normalized["requestId"] = request_id
+    normalized["workerId"] = worker_id
+    normalized["receivedAt"] = time.time()
+
+    RESULT_DIR.mkdir(parents=True, exist_ok=True)
+    result_file = RESULT_DIR / f"{request_id}.json"
+    temporary_file = result_file.with_suffix(".tmp")
+    temporary_file.write_text(
+        json.dumps(normalized, ensure_ascii=False),
+        encoding="utf-8",
+    )
+    temporary_file.replace(result_file)
+    return request_id
+
+
 async def handle_worker(connection) -> None:
     if connection.request.path != "/ws/matcher":
         await connection.close(code=1008, reason="unsupported websocket path")
@@ -70,7 +98,37 @@ async def handle_worker(connection) -> None:
 
     try:
         async for raw_message in connection:
-            print(f"[gateway] received from worker: {raw_message}", flush=True)
+            if not isinstance(raw_message, str) or len(raw_message) > MAX_WORKER_MESSAGE_SIZE:
+                print("[gateway] rejected oversized or binary worker response", flush=True)
+                continue
+
+            try:
+                payload = json.loads(raw_message)
+            except json.JSONDecodeError:
+                print("[gateway] rejected invalid worker JSON", flush=True)
+                continue
+
+            if not isinstance(payload, dict):
+                print("[gateway] rejected non-object worker response", flush=True)
+                continue
+
+            message_type = payload.get("type")
+            if message_type == "ack":
+                print(
+                    f"[gateway] worker accepted request: {payload.get('requestId')}",
+                    flush=True,
+                )
+                continue
+
+            if message_type != "match_result":
+                print(f"[gateway] ignored worker message: {message_type}", flush=True)
+                continue
+
+            try:
+                request_id = save_match_result(payload, worker_id)
+                print(f"[gateway] saved match result: {request_id}", flush=True)
+            except (OSError, TypeError, ValueError) as error:
+                print(f"[gateway] rejected match result: {error}", flush=True)
     finally:
         heartbeat.cancel()
         request_forwarder.cancel()

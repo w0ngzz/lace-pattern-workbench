@@ -33,7 +33,11 @@ THUMBNAIL_DIR = BASE_DIR / ".cache" / "thumbnails"
 WORK_ORDERS_FILE = DATA_DIR / "design_work_orders.jsonl"
 MATCHER_STATE_FILE = BASE_DIR / ".runtime" / "matcher_status.json"
 MATCHER_REQUEST_DIR = BASE_DIR / ".runtime" / "match_requests"
+MATCHER_JOB_DIR = BASE_DIR / ".runtime" / "match_jobs"
+MATCHER_RESULT_DIR = BASE_DIR / ".runtime" / "match_results"
 MATCHER_STATUS_MAX_AGE_SECONDS = 12
+MATCHER_RESULT_TIMEOUT_SECONDS = 120
+MATCHER_ARTIFACT_RETENTION_SECONDS = 60 * 60
 MATCH_FILE_URL_TTL_SECONDS = 10 * 60
 
 ALLOWED_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp", ".bmp"}
@@ -419,6 +423,159 @@ def download_match_file(filename: str):
     return response
 
 
+def write_json_atomic(path: Path, payload: dict) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary_file = path.with_suffix(".tmp")
+    temporary_file.write_text(
+        json.dumps(payload, ensure_ascii=False),
+        encoding="utf-8",
+    )
+    temporary_file.replace(path)
+
+
+def cleanup_expired_match_artifacts() -> None:
+    if not MATCHER_JOB_DIR.exists():
+        return
+
+    cutoff = time.time() - MATCHER_ARTIFACT_RETENTION_SECONDS
+    for job_file in MATCHER_JOB_DIR.glob("*.json"):
+        try:
+            if job_file.stat().st_mtime >= cutoff:
+                continue
+            job = json.loads(job_file.read_text(encoding="utf-8"))
+            stored_name = Path(str(job.get("storedName", ""))).name
+            if stored_name:
+                (UPLOAD_DIR / stored_name).unlink(missing_ok=True)
+            (MATCHER_RESULT_DIR / job_file.name).unlink(missing_ok=True)
+            job_file.unlink(missing_ok=True)
+        except (OSError, TypeError, ValueError, json.JSONDecodeError):
+            continue
+
+
+def material_file_for_index(image_index: int) -> Path | None:
+    return next(
+        (
+            path
+            for path in pattern_files(MATERIAL_ORIGINAL_DIR)
+            if path.stem.isdigit() and int(path.stem) == image_index
+        ),
+        None,
+    )
+
+
+def normalized_worker_matches(payload: dict) -> list[dict]:
+    matches = []
+    raw_matches = payload.get("matches")
+    if not isinstance(raw_matches, list):
+        return matches
+
+    for raw_match in raw_matches[:20]:
+        if not isinstance(raw_match, dict):
+            continue
+        try:
+            image_index = int(raw_match.get("imageIndex", raw_match.get("materialId")))
+            similarity = float(raw_match.get("similarity", raw_match.get("score")))
+        except (TypeError, ValueError):
+            continue
+        if image_index < 1 or not 0 <= similarity <= 1:
+            continue
+
+        material_file = material_file_for_index(image_index)
+        if material_file is None:
+            continue
+        matches.append(
+            {
+                "imageIndex": image_index,
+                "similarity": round(similarity, 4),
+                "fileName": material_file.name,
+                "matchedImage": url_for("library_image", filename=material_file.name),
+                "previewUrl": url_for("preview", pattern=material_file.name),
+            }
+        )
+
+    matches.sort(key=lambda item: item["similarity"], reverse=True)
+    return matches[:5]
+
+
+@app.get("/api/match-results/<request_id>")
+def match_result(request_id: str):
+    if not re.fullmatch(r"[a-f0-9]{32}", request_id):
+        abort(404)
+
+    job_file = MATCHER_JOB_DIR / f"{request_id}.json"
+    if not job_file.is_file():
+        abort(404)
+    try:
+        job = json.loads(job_file.read_text(encoding="utf-8"))
+    except (OSError, TypeError, json.JSONDecodeError):
+        return jsonify({"ok": False, "status": "failed", "message": "匹配任务状态读取失败。"}), 500
+
+    result_file = MATCHER_RESULT_DIR / f"{request_id}.json"
+    if not result_file.is_file():
+        elapsed = time.time() - float(job.get("createdAtEpoch", 0))
+        if elapsed >= MATCHER_RESULT_TIMEOUT_SECONDS:
+            return jsonify(
+                {
+                    "ok": False,
+                    "status": "timeout",
+                    "requestId": request_id,
+                    "message": "图案识别服务响应超时，请重新上传或创建设计工单。",
+                }
+            ), 504
+        return jsonify(
+            {
+                "ok": True,
+                "status": "processing",
+                "requestId": request_id,
+                "elapsedSeconds": round(max(0, elapsed), 1),
+            }
+        ), 202
+
+    try:
+        worker_result = json.loads(result_file.read_text(encoding="utf-8"))
+    except (OSError, TypeError, json.JSONDecodeError):
+        return jsonify({"ok": False, "status": "failed", "message": "Worker 匹配结果读取失败。"}), 500
+
+    if not worker_result.get("ok"):
+        error = worker_result.get("error")
+        error_message = error.get("message") if isinstance(error, dict) else None
+        return jsonify(
+            {
+                "ok": False,
+                "status": "failed",
+                "requestId": request_id,
+                "message": error_message or "图案识别服务处理失败，请稍后重试。",
+                "error": error if isinstance(error, dict) else None,
+            }
+        ), 502
+
+    matches = normalized_worker_matches(worker_result)
+    matched = bool(worker_result.get("matched", bool(matches))) and bool(matches)
+    response = {
+        "ok": True,
+        "status": "completed",
+        "requestId": request_id,
+        "uploadFileName": job.get("fileName"),
+        "matched": matched,
+        "message": "匹配成功" if matched else "暂未找到您想要的款式",
+        "matches": matches,
+        "elapsedMs": worker_result.get("elapsedMs"),
+        "modelVersion": worker_result.get("modelVersion"),
+    }
+    if matched:
+        best_match = matches[0]
+        response.update(
+            {
+                "imageIndex": best_match["imageIndex"],
+                "similarity": best_match["similarity"],
+                "matchedFileName": best_match["fileName"],
+                "matchedImage": best_match["matchedImage"],
+                "previewUrl": best_match["previewUrl"],
+            }
+        )
+    return jsonify(response)
+
+
 @app.post("/api/match")
 def match_pattern():
     if not current_matcher_status()["online"]:
@@ -435,50 +592,43 @@ def match_pattern():
     if not app.config.get("MATCH_FILE_SECRET"):
         return jsonify({"ok": False, "message": "图案下载服务尚未配置，暂时无法匹配。"}), 503
 
+    cleanup_expired_match_artifacts()
     UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
     stored_name = f"{uuid.uuid4().hex}{extension}"
     uploaded.save(UPLOAD_DIR / secure_filename(stored_name))
 
     request_id = uuid.uuid4().hex
-    MATCHER_REQUEST_DIR.mkdir(parents=True, exist_ok=True)
+    created_at = datetime.now().astimezone().isoformat(timespec="seconds")
     match_request = {
         "type": "match_request",
         "requestId": request_id,
         "fileName": original_name,
         "storedName": stored_name,
         "downloadUrl": match_file_download_url(stored_name),
-        "createdAt": datetime.now().astimezone().isoformat(timespec="seconds"),
+        "createdAt": created_at,
     }
+    write_json_atomic(
+        MATCHER_JOB_DIR / f"{request_id}.json",
+        {
+            "requestId": request_id,
+            "fileName": original_name,
+            "storedName": stored_name,
+            "createdAt": created_at,
+            "createdAtEpoch": time.time(),
+        },
+    )
     request_file = MATCHER_REQUEST_DIR / f"{request_id}.json"
-    temporary_file = request_file.with_suffix(".tmp")
-    temporary_file.write_text(json.dumps(match_request, ensure_ascii=False), encoding="utf-8")
-    temporary_file.replace(request_file)
-
-    library_files = pattern_files(MATERIAL_ORIGINAL_DIR)
-    library_by_name = {path.name.casefold(): path for path in library_files}
-
-    # 临时匹配规则：只比较上传文件名与 pattern 素材库文件名，后续替换为图像相似度算法。
-    matched = library_by_name.get(original_name.casefold())
-    if matched:
-        return jsonify(
-            {
-                "ok": True,
-                "matched": True,
-                "message": "匹配成功",
-                "fileName": original_name,
-                "matchedImage": url_for("library_image", filename=matched.name),
-                "previewUrl": url_for("preview", pattern=matched.name),
-            }
-        )
+    write_json_atomic(request_file, match_request)
 
     return jsonify(
         {
             "ok": True,
-            "matched": False,
-            "message": "暂未找到您想要的款式",
+            "status": "processing",
+            "requestId": request_id,
+            "message": "图案匹配任务已提交。",
             "fileName": original_name,
         }
-    )
+    ), 202
 
 
 @app.get("/preview")

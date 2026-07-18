@@ -163,19 +163,34 @@ if (uploadForm) {
     else progressLabel.textContent = "正在整理匹配结果…";
   }
 
-  // 临时进度方案：用分段延时模拟识图过程，后续替换为真实任务进度或轮询接口。
-  function simulateProgress() {
-    return new Promise((resolve) => {
-      let value = 0;
-      const timer = window.setInterval(() => {
-        value = Math.min(94, value + Math.ceil(Math.random() * 8));
-        setProgress(value);
-        if (value >= 94) {
-          window.clearInterval(timer);
-          window.setTimeout(resolve, 420);
-        }
-      }, 150);
-    });
+  function wait(milliseconds) {
+    return new Promise((resolve) => window.setTimeout(resolve, milliseconds));
+  }
+
+  async function waitForMatchResult(requestId) {
+    const deadline = Date.now() + 125000;
+    let progress = 8;
+
+    while (Date.now() < deadline) {
+      const response = await fetch(`/api/match-results/${requestId}`, {
+        cache: 'no-store',
+      });
+      const payload = await response.json();
+
+      if (response.status === 202) {
+        progress = Math.min(94, progress + Math.max(1, Math.ceil((96 - progress) * 0.08)));
+        setProgress(progress);
+        await wait(1000);
+        continue;
+      }
+      if (!response.ok) {
+        throw new Error(payload.message || '图案识别服务处理失败。');
+      }
+      if (payload.status === 'completed') return payload;
+      throw new Error(payload.message || '图案匹配结果状态异常。');
+    }
+
+    throw new Error('图案识别服务响应超时，请重新上传或创建设计工单。');
   }
 
   function showWorkOrderQuestion() {
@@ -202,12 +217,12 @@ if (uploadForm) {
     try {
       const formData = new FormData();
       formData.append("pattern", fileInput.files[0]);
-      const [response] = await Promise.all([
-        fetch("/api/match", { method: "POST", body: formData }),
-        simulateProgress(),
-      ]);
-      const payload = await response.json();
-      if (!response.ok) throw new Error(payload.message || "识别请求失败，请稍后重试。");
+      const response = await fetch("/api/match", { method: "POST", body: formData });
+      const submission = await response.json();
+      if (!response.ok) throw new Error(submission.message || "识别请求失败，请稍后重试。");
+      if (!submission.requestId) throw new Error("识别任务创建失败，未返回任务编号。");
+
+      const payload = await waitForMatchResult(submission.requestId);
 
       setProgress(100);
       await new Promise((resolve) => window.setTimeout(resolve, 280));
@@ -221,26 +236,31 @@ if (uploadForm) {
       resultTitle.textContent = payload.message;
       if (payload.matched) {
         matchStatus = "matched";
-        resultMessage.textContent = `素材库中找到了同名图案 ${payload.fileName}，请确认是否符合您的需求。`;
+        const similarityPercent = (Number(payload.similarity) * 100).toFixed(1);
+        resultMessage.textContent = `最相似素材为 ${payload.matchedFileName}，相似度 ${similarityPercent}%，请确认是否符合您的需求。`;
         resultImage.src = payload.matchedImage;
         resultImageWrap.hidden = false;
         confirmActions.hidden = false;
         previewLink.href = payload.previewUrl;
       } else {
         matchStatus = "not_matched";
-        resultMessage.textContent = "当前素材库没有同名图案，可继续创建内部设计工单并登记客户信息。";
+        resultMessage.textContent = "Worker 暂未找到达到相似度要求的素材，可继续创建内部设计工单并登记客户信息。";
         resultImageWrap.hidden = true;
         confirmActions.hidden = true;
         showWorkOrderQuestion();
       }
     } catch (error) {
+      matchStatus = "not_matched";
       progressView.hidden = true;
       resultView.hidden = false;
       setMatchStep(3);
       resultImageWrap.hidden = true;
       confirmActions.hidden = true;
+      previewAction.hidden = true;
+      customerForm.hidden = true;
       resultTitle.textContent = "识别未完成";
       resultMessage.textContent = error.message;
+      showWorkOrderQuestion();
     }
   });
 
