@@ -32,9 +32,19 @@ class LaceWebsiteTests(unittest.TestCase):
         self.matcher_request_dir = root / "runtime" / "match_requests"
         self.matcher_job_dir = root / "runtime" / "match_jobs"
         self.matcher_result_dir = root / "runtime" / "match_results"
+        self.preview_state_file = root / "runtime" / "preview_status.json"
+        self.preview_request_dir = root / "runtime" / "preview_requests"
+        self.preview_job_dir = root / "runtime" / "preview_jobs"
+        self.preview_result_dir = root / "runtime" / "preview_results"
         self.matcher_state_file.parent.mkdir()
         self.matcher_state_file.write_text(
             json.dumps({"online": True, "workerId": "test-worker", "updatedAt": time.time()}),
+            encoding="utf-8",
+        )
+        self.preview_state_file.write_text(
+            json.dumps(
+                {"online": True, "workerId": "preview-test-worker", "updatedAt": time.time()}
+            ),
             encoding="utf-8",
         )
 
@@ -63,6 +73,10 @@ class LaceWebsiteTests(unittest.TestCase):
             lace_app.MATCHER_REQUEST_DIR,
             lace_app.MATCHER_JOB_DIR,
             lace_app.MATCHER_RESULT_DIR,
+            lace_app.PREVIEW_STATE_FILE,
+            lace_app.PREVIEW_REQUEST_DIR,
+            lace_app.PREVIEW_JOB_DIR,
+            lace_app.PREVIEW_RESULT_DIR,
         )
         lace_app.TOP10_DIR = self.top10_dir
         lace_app.MATERIAL_LIBRARY_DIR = self.library_dir
@@ -77,6 +91,10 @@ class LaceWebsiteTests(unittest.TestCase):
         lace_app.MATCHER_REQUEST_DIR = self.matcher_request_dir
         lace_app.MATCHER_JOB_DIR = self.matcher_job_dir
         lace_app.MATCHER_RESULT_DIR = self.matcher_result_dir
+        lace_app.PREVIEW_STATE_FILE = self.preview_state_file
+        lace_app.PREVIEW_REQUEST_DIR = self.preview_request_dir
+        lace_app.PREVIEW_JOB_DIR = self.preview_job_dir
+        lace_app.PREVIEW_RESULT_DIR = self.preview_result_dir
         self.original_download_config = (
             lace_app.app.config.get("PUBLIC_BASE_URL"),
             lace_app.app.config.get("MATCH_FILE_SECRET"),
@@ -103,6 +121,10 @@ class LaceWebsiteTests(unittest.TestCase):
             lace_app.MATCHER_REQUEST_DIR,
             lace_app.MATCHER_JOB_DIR,
             lace_app.MATCHER_RESULT_DIR,
+            lace_app.PREVIEW_STATE_FILE,
+            lace_app.PREVIEW_REQUEST_DIR,
+            lace_app.PREVIEW_JOB_DIR,
+            lace_app.PREVIEW_RESULT_DIR,
         ) = self.original_paths
         (
             lace_app.app.config["PUBLIC_BASE_URL"],
@@ -127,6 +149,26 @@ class LaceWebsiteTests(unittest.TestCase):
             **result,
         }
         (self.matcher_result_dir / f"{request_id}.json").write_text(
+            json.dumps(payload),
+            encoding="utf-8",
+        )
+
+    def create_preview(self, customer_input="设计一件优雅的蕾丝连衣裙"):
+        return self.client.post(
+            "/api/preview",
+            json={"imageIndex": 1, "customerInput": customer_input},
+            headers={"X-Preview-Client-Version": lace_app.PREVIEW_CLIENT_VERSION},
+        )
+
+    def save_preview_result(self, request_id, **result):
+        self.preview_result_dir.mkdir(parents=True, exist_ok=True)
+        payload = {
+            "type": "preview_result",
+            "requestId": request_id,
+            "workerId": "preview-test-worker",
+            **result,
+        }
+        (self.preview_result_dir / f"{request_id}.json").write_text(
             json.dumps(payload),
             encoding="utf-8",
         )
@@ -381,10 +423,86 @@ class LaceWebsiteTests(unittest.TestCase):
         self.assertEqual(response.status_code, 400)
         self.assertFalse(response.get_json()["ok"])
 
-    def test_preview_placeholder(self):
+    def test_preview_page_displays_selected_pattern_and_form(self):
         response = self.client.get("/preview?pattern=1.png")
+        body = response.get_data(as_text=True)
         self.assertEqual(response.status_code, 200)
-        self.assertIn("成衣效果，正在打版", response.get_data(as_text=True))
+        self.assertIn("让纹样走进", body)
+        self.assertIn("LACE-001", body)
+        self.assertIn('data-image-index="1"', body)
+        self.assertIn('id="previewForm"', body)
+        self.assertIn('id="previewImageGrid"', body)
+        self.assertIn("/static/js/preview.js?v=", body)
+
+    def test_preview_task_is_sent_to_worker_queue(self):
+        response = self.create_preview()
+        payload = response.get_json()
+        self.assertEqual(response.status_code, 202)
+        self.assertRegex(payload["requestId"], r"^[a-f0-9]{32}$")
+
+        request_payload = json.loads(
+            (self.preview_request_dir / f"{payload['requestId']}.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        self.assertEqual(
+            request_payload,
+            {
+                "type": "preview_request",
+                "requestId": payload["requestId"],
+                "imageIndex": 1,
+                "customerInput": "设计一件优雅的蕾丝连衣裙",
+            },
+        )
+        pending = self.client.get(f"/api/preview-results/{payload['requestId']}")
+        self.assertEqual(pending.status_code, 202)
+
+    def test_preview_worker_images_are_returned_to_browser(self):
+        submitted = self.create_preview().get_json()
+        self.save_preview_result(
+            submitted["requestId"],
+            success=True,
+            imageUrls=[
+                "https://images.example/look-1.png?Signature=one",
+                "http://unsafe.example/look-2.png",
+                "https://images.example/look-1.png?Signature=one",
+                "https://images.example/look-3.png?Signature=three",
+            ],
+        )
+
+        response = self.client.get(f"/api/preview-results/{submitted['requestId']}")
+        payload = response.get_json()
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(payload["status"], "completed")
+        self.assertEqual(payload["imageIndex"], 1)
+        self.assertEqual(
+            payload["imageUrls"],
+            [
+                "https://images.example/look-1.png?Signature=one",
+                "https://images.example/look-3.png?Signature=three",
+            ],
+        )
+
+    def test_preview_worker_failure_is_returned_to_browser(self):
+        submitted = self.create_preview().get_json()
+        self.save_preview_result(
+            submitted["requestId"],
+            success=False,
+            error={"code": "MODEL_ERROR", "message": "成衣模型调用失败"},
+        )
+
+        response = self.client.get(f"/api/preview-results/{submitted['requestId']}")
+        self.assertEqual(response.status_code, 502)
+        self.assertEqual(response.get_json()["message"], "成衣模型调用失败")
+
+    def test_preview_request_is_rejected_when_worker_is_offline(self):
+        self.preview_state_file.write_text(
+            json.dumps({"online": False, "workerId": None, "updatedAt": time.time()}),
+            encoding="utf-8",
+        )
+        response = self.create_preview()
+        self.assertEqual(response.status_code, 503)
+        self.assertIn("不在线", response.get_json()["message"])
 
 
 if __name__ == "__main__":

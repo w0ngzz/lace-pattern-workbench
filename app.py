@@ -13,7 +13,7 @@ import time
 import uuid
 from datetime import datetime
 from pathlib import Path
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urlsplit
 
 from flask import Flask, abort, jsonify, render_template, request, send_file, url_for
 from PIL import Image, ImageOps
@@ -35,11 +35,18 @@ MATCHER_STATE_FILE = BASE_DIR / ".runtime" / "matcher_status.json"
 MATCHER_REQUEST_DIR = BASE_DIR / ".runtime" / "match_requests"
 MATCHER_JOB_DIR = BASE_DIR / ".runtime" / "match_jobs"
 MATCHER_RESULT_DIR = BASE_DIR / ".runtime" / "match_results"
+PREVIEW_STATE_FILE = BASE_DIR / ".runtime" / "preview_status.json"
+PREVIEW_REQUEST_DIR = BASE_DIR / ".runtime" / "preview_requests"
+PREVIEW_JOB_DIR = BASE_DIR / ".runtime" / "preview_jobs"
+PREVIEW_RESULT_DIR = BASE_DIR / ".runtime" / "preview_results"
 MATCHER_STATUS_MAX_AGE_SECONDS = 12
 MATCHER_RESULT_TIMEOUT_SECONDS = 120
+PREVIEW_RESULT_TIMEOUT_SECONDS = 300
 MATCHER_ARTIFACT_RETENTION_SECONDS = 60 * 60
 MATCH_FILE_URL_TTL_SECONDS = 10 * 60
 MATCH_CLIENT_VERSION = "top5-results-v2"
+PREVIEW_CLIENT_VERSION = "garment-preview-v1"
+PREVIEW_INPUT_MAX_LENGTH = 1000
 
 ALLOWED_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp", ".bmp"}
 MAX_UPLOAD_SIZE = 12 * 1024 * 1024
@@ -337,16 +344,16 @@ def library_page():
     )
 
 
-def current_matcher_status() -> dict:
-    status = {"online": False, "workerId": None, "message": "图案匹配服务离线"}
+def current_worker_status(state_file: Path, service_name: str) -> dict:
+    status = {"online": False, "workerId": None, "message": f"{service_name}离线"}
     try:
-        state = json.loads(MATCHER_STATE_FILE.read_text(encoding="utf-8"))
+        state = json.loads(state_file.read_text(encoding="utf-8"))
         heartbeat_age = time.time() - float(state.get("updatedAt", 0))
         online = bool(state.get("online")) and heartbeat_age <= MATCHER_STATUS_MAX_AGE_SECONDS
         status = {
             "online": online,
             "workerId": state.get("workerId") if online else None,
-            "message": "图案匹配服务在线" if online else "图案匹配服务离线",
+            "message": f"{service_name}在线" if online else f"{service_name}离线",
         }
     except (FileNotFoundError, OSError, ValueError, TypeError, json.JSONDecodeError):
         pass
@@ -354,11 +361,26 @@ def current_matcher_status() -> dict:
     return status
 
 
+def current_matcher_status() -> dict:
+    return current_worker_status(MATCHER_STATE_FILE, "图案匹配服务")
+
+
+def current_preview_status() -> dict:
+    return current_worker_status(PREVIEW_STATE_FILE, "成衣效果服务")
+
+
 @app.get("/api/matcher-status")
 def matcher_status():
     status = current_matcher_status()
 
     response = jsonify(status)
+    response.headers["Cache-Control"] = "no-store"
+    return response
+
+
+@app.get("/api/preview-status")
+def preview_status():
+    response = jsonify(current_preview_status())
     response.headers["Cache-Control"] = "no-store"
     return response
 
@@ -476,6 +498,21 @@ def cleanup_expired_match_artifacts() -> None:
             continue
 
 
+def cleanup_expired_preview_artifacts() -> None:
+    if not PREVIEW_JOB_DIR.exists():
+        return
+
+    cutoff = time.time() - MATCHER_ARTIFACT_RETENTION_SECONDS
+    for job_file in PREVIEW_JOB_DIR.glob("*.json"):
+        try:
+            if job_file.stat().st_mtime >= cutoff:
+                continue
+            (PREVIEW_RESULT_DIR / job_file.name).unlink(missing_ok=True)
+            job_file.unlink(missing_ok=True)
+        except OSError:
+            continue
+
+
 def material_file_for_index(image_index: int) -> Path | None:
     return next(
         (
@@ -521,7 +558,7 @@ def normalized_worker_matches(payload: dict) -> list[dict]:
                 "styleCode": metadata.get("code") or f"LACE-{image_index:03d}",
                 "category": metadata.get("category") or "蕾丝纹样",
                 "matchedImage": url_for("library_image", filename=material_file.name),
-                "previewUrl": url_for("preview", pattern=material_file.name),
+                "previewUrl": url_for("preview", imageIndex=image_index),
             }
         )
 
@@ -678,8 +715,179 @@ def match_pattern():
 
 @app.get("/preview")
 def preview():
-    pattern_name = Path(request.args.get("pattern", "")).name
-    return render_template("preview.html", pattern_name=pattern_name)
+    raw_index = request.args.get("imageIndex", "")
+    if not raw_index:
+        raw_index = Path(request.args.get("pattern", "")).stem
+    try:
+        image_index = int(raw_index)
+    except (TypeError, ValueError):
+        abort(404)
+
+    material_file = material_file_for_index(image_index)
+    if material_file is None:
+        abort(404)
+    metadata = next(
+        (style for style in load_material_styles()[0] if style["id"] == image_index),
+        {},
+    )
+    return render_template(
+        "preview.html",
+        image_index=image_index,
+        pattern_name=material_file.name,
+        pattern_code=metadata.get("code") or f"LACE-{image_index:03d}",
+        pattern_category=metadata.get("category") or "蕾丝纹样",
+        reference_image=url_for("library_image", filename=material_file.name),
+        preview_online=current_preview_status()["online"],
+    )
+
+
+def normalized_preview_urls(payload: dict) -> list[str]:
+    raw_urls = payload.get("imageUrls")
+    if not isinstance(raw_urls, list):
+        return []
+
+    image_urls = []
+    for raw_url in raw_urls[:8]:
+        if not isinstance(raw_url, str) or len(raw_url) > 4096:
+            continue
+        url = raw_url.strip()
+        parsed = urlsplit(url)
+        if parsed.scheme != "https" or not parsed.netloc or url in image_urls:
+            continue
+        image_urls.append(url)
+    return image_urls
+
+
+@app.post("/api/preview")
+def create_preview_task():
+    if request.headers.get("X-Preview-Client-Version") != PREVIEW_CLIENT_VERSION:
+        return jsonify(
+            {"ok": False, "message": "成衣效果页面已更新，请刷新后重新提交。"}
+        ), 409
+    if not current_preview_status()["online"]:
+        return jsonify({"ok": False, "message": "成衣效果服务当前不在线，暂时无法生成。"}), 503
+
+    payload = request.get_json(silent=True) or {}
+    image_index = payload.get("imageIndex")
+    if isinstance(image_index, bool):
+        return jsonify({"ok": False, "message": "款式序号无效。"}), 400
+    try:
+        image_index = int(image_index)
+    except (TypeError, ValueError):
+        return jsonify({"ok": False, "message": "款式序号无效。"}), 400
+    if material_file_for_index(image_index) is None:
+        return jsonify({"ok": False, "message": "素材库中不存在该款式。"}), 404
+
+    customer_input = str(payload.get("customerInput", "")).strip()
+    if not customer_input or len(customer_input) > PREVIEW_INPUT_MAX_LENGTH:
+        return jsonify(
+            {
+                "ok": False,
+                "message": f"请输入 1 至 {PREVIEW_INPUT_MAX_LENGTH} 个字符的成衣修改需求。",
+            }
+        ), 400
+
+    cleanup_expired_preview_artifacts()
+    request_id = uuid.uuid4().hex
+    created_at = datetime.now().astimezone().isoformat(timespec="seconds")
+    preview_request = {
+        "type": "preview_request",
+        "requestId": request_id,
+        "imageIndex": image_index,
+        "customerInput": customer_input,
+    }
+    write_json_atomic(
+        PREVIEW_JOB_DIR / f"{request_id}.json",
+        {
+            **preview_request,
+            "createdAt": created_at,
+            "createdAtEpoch": time.time(),
+        },
+    )
+    write_json_atomic(PREVIEW_REQUEST_DIR / f"{request_id}.json", preview_request)
+    return jsonify(
+        {
+            "ok": True,
+            "status": "processing",
+            "requestId": request_id,
+            "message": "成衣效果任务已提交。",
+        }
+    ), 202
+
+
+@app.get("/api/preview-results/<request_id>")
+def preview_result(request_id: str):
+    if not re.fullmatch(r"[a-f0-9]{32}", request_id):
+        abort(404)
+
+    job_file = PREVIEW_JOB_DIR / f"{request_id}.json"
+    if not job_file.is_file():
+        abort(404)
+    try:
+        job = json.loads(job_file.read_text(encoding="utf-8"))
+    except (OSError, TypeError, json.JSONDecodeError):
+        return jsonify({"ok": False, "status": "failed", "message": "成衣任务状态读取失败。"}), 500
+
+    result_file = PREVIEW_RESULT_DIR / f"{request_id}.json"
+    if not result_file.is_file():
+        elapsed = time.time() - float(job.get("createdAtEpoch", 0))
+        if elapsed >= PREVIEW_RESULT_TIMEOUT_SECONDS:
+            return jsonify(
+                {
+                    "ok": False,
+                    "status": "timeout",
+                    "requestId": request_id,
+                    "message": "成衣效果生成超时，请稍后重新提交。",
+                }
+            ), 504
+        return jsonify(
+            {
+                "ok": True,
+                "status": "processing",
+                "requestId": request_id,
+                "elapsedSeconds": round(max(0, elapsed), 1),
+            }
+        ), 202
+
+    try:
+        worker_result = json.loads(result_file.read_text(encoding="utf-8"))
+    except (OSError, TypeError, json.JSONDecodeError):
+        return jsonify({"ok": False, "status": "failed", "message": "成衣 Worker 结果读取失败。"}), 500
+
+    if worker_result.get("success") is not True:
+        error = worker_result.get("error")
+        error_message = error.get("message") if isinstance(error, dict) else None
+        return jsonify(
+            {
+                "ok": False,
+                "status": "failed",
+                "requestId": request_id,
+                "message": error_message or "成衣效果生成失败，请稍后重试。",
+                "error": error if isinstance(error, dict) else None,
+            }
+        ), 502
+
+    image_urls = normalized_preview_urls(worker_result)
+    if not image_urls:
+        return jsonify(
+            {
+                "ok": False,
+                "status": "failed",
+                "requestId": request_id,
+                "message": "成衣 Worker 未返回有效的 HTTPS 图片链接。",
+            }
+        ), 502
+
+    return jsonify(
+        {
+            "ok": True,
+            "status": "completed",
+            "requestId": request_id,
+            "imageIndex": job.get("imageIndex"),
+            "customerInput": job.get("customerInput"),
+            "imageUrls": image_urls,
+        }
+    )
 
 
 @app.post("/api/work-orders")

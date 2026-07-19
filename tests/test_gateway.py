@@ -11,12 +11,18 @@ class MatchGatewayTests(unittest.TestCase):
         self.temp_dir = tempfile.TemporaryDirectory()
         self.original_job_dir = match_gateway.JOB_DIR
         self.original_result_dir = match_gateway.RESULT_DIR
+        self.original_preview_job_dir = match_gateway.PREVIEW_JOB_DIR
+        self.original_preview_result_dir = match_gateway.PREVIEW_RESULT_DIR
         match_gateway.JOB_DIR = Path(self.temp_dir.name) / "match_jobs"
         match_gateway.RESULT_DIR = Path(self.temp_dir.name) / "match_results"
+        match_gateway.PREVIEW_JOB_DIR = Path(self.temp_dir.name) / "preview_jobs"
+        match_gateway.PREVIEW_RESULT_DIR = Path(self.temp_dir.name) / "preview_results"
 
     def tearDown(self):
         match_gateway.JOB_DIR = self.original_job_dir
         match_gateway.RESULT_DIR = self.original_result_dir
+        match_gateway.PREVIEW_JOB_DIR = self.original_preview_job_dir
+        match_gateway.PREVIEW_RESULT_DIR = self.original_preview_result_dir
         self.temp_dir.cleanup()
 
     def test_worker_result_is_saved_with_authenticated_worker_id(self):
@@ -54,6 +60,30 @@ class MatchGatewayTests(unittest.TestCase):
                 {"type": "match_result", "requestId": "b" * 32, "ok": True},
                 "trusted-worker",
             )
+
+    def test_preview_result_is_saved_for_existing_job(self):
+        request_id = "c" * 32
+        match_gateway.PREVIEW_JOB_DIR.mkdir(parents=True)
+        (match_gateway.PREVIEW_JOB_DIR / f"{request_id}.json").write_text(
+            "{}", encoding="utf-8"
+        )
+        match_gateway.save_preview_result(
+            {
+                "type": "preview_result",
+                "requestId": request_id,
+                "success": True,
+                "imageUrls": ["https://example.com/look.png"],
+            },
+            "preview-worker-01",
+        )
+
+        result = json.loads(
+            (match_gateway.PREVIEW_RESULT_DIR / f"{request_id}.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        self.assertEqual(result["workerId"], "preview-worker-01")
+        self.assertTrue(result["success"])
 
 
 if __name__ == "__main__":

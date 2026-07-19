@@ -1,15 +1,103 @@
 {% extends "base.html" %}
 
-{% block title %}成衣效果预览 · 蕾智创库{% endblock %}
+{% block title %}成衣效果生成 · 蕾智创库{% endblock %}
 
 {% block content %}
-<section class="preview-placeholder">
-  <p class="eyebrow">GARMENT PREVIEW · COMING SOON</p>
-  <div class="dress-outline" aria-hidden="true">
-    <span></span>
+<main class="garment-studio" data-image-index="{{ image_index }}">
+  <header class="garment-studio-head">
+    <div>
+      <p class="eyebrow">GARMENT VISUALIZATION · AI STUDIO</p>
+      <h1>让纹样走进<em>成衣</em></h1>
+      <p>以已确认的蕾丝素材为基础，描述廓形、品类、颜色和细节要求，生成可供设计沟通的成衣效果图。</p>
+    </div>
+    <a class="text-link garment-back-link" href="{{ url_for('index') }}#recognition"><span>返回图案匹配</span><b>↗</b></a>
+  </header>
+
+  <div class="garment-workspace">
+    <aside class="garment-reference">
+      <div class="garment-reference-label">
+        <span>SELECTED LACE</span>
+        <b>NO. {{ "%03d"|format(image_index) }}</b>
+      </div>
+      <div class="garment-reference-image">
+        <img src="{{ reference_image }}" alt="{{ pattern_code }} {{ pattern_category }}参考图案">
+      </div>
+      <div class="garment-reference-meta">
+        <span>{{ pattern_category }}</span>
+        <h2>{{ pattern_code }}</h2>
+        <p>素材序号 {{ image_index }} · {{ pattern_name }}</p>
+      </div>
+      <div class="preview-service-state" id="previewServiceState" data-status="{{ 'online' if preview_online else 'offline' }}">
+        <i aria-hidden="true"></i>
+        <span id="previewServiceText">{{ '成衣服务在线' if preview_online else '成衣服务离线' }}</span>
+      </div>
+    </aside>
+
+    <section class="garment-brief-panel" aria-labelledby="garmentBriefTitle">
+      <div class="garment-brief-heading">
+        <span>01 · DESIGN BRIEF</span>
+        <h2 id="garmentBriefTitle">描述你的成衣构想</h2>
+        <p>建议同时说明品类、廓形、颜色、使用部位和希望调整的细节。</p>
+      </div>
+
+      <form id="previewForm" class="garment-brief-form">
+        <label for="customerInput">修改需求</label>
+        <div class="garment-prompt-box">
+          <textarea
+            id="customerInput"
+            name="customerInput"
+            rows="7"
+            maxlength="1000"
+            placeholder="例如：设计一件优雅的米白色蕾丝连衣裙，收腰 A 字廓形，将花纹重点用于领口、袖口和裙摆。"
+            required
+          ></textarea>
+          <span><b id="previewCharCount">0</b> / 1000</span>
+        </div>
+        <div class="garment-prompt-presets" aria-label="需求示例">
+          <button type="button" data-preview-prompt="设计一件优雅的米白色蕾丝连衣裙，收腰 A 字廓形，将花纹重点用于领口、袖口和裙摆。">优雅连衣裙</button>
+          <button type="button" data-preview-prompt="设计一件现代感蕾丝西装外套，黑色修身廓形，局部使用蕾丝形成材质对比。">现代西装</button>
+          <button type="button" data-preview-prompt="设计一件轻盈的婚纱礼服，象牙白色，长袖、高腰，蕾丝纹样从上身自然延伸到裙摆。">轻盈婚纱</button>
+        </div>
+        <p class="preview-availability" id="previewAvailability" {% if preview_online %}hidden{% endif %}>成衣效果服务当前不在线，暂时无法提交。</p>
+        <button class="primary-button garment-generate-button" id="previewSubmit" type="submit" {% if not preview_online %}disabled{% endif %}>
+          <span>生成成衣效果</span><b>→</b>
+        </button>
+      </form>
+
+      <div class="garment-generation-progress" id="previewProgress" hidden aria-live="polite">
+        <div class="garment-progress-mark" aria-hidden="true"><i></i><i></i><i></i></div>
+        <div>
+          <span>02 · GENERATING</span>
+          <h3 id="previewProgressTitle">正在构思成衣效果</h3>
+          <p id="previewProgressMessage">Worker 正在结合蕾丝纹样与设计需求生成效果图，请保持页面开启。</p>
+          <div class="garment-progress-track"><i id="previewProgressBar"></i></div>
+          <small id="previewProgressValue">0%</small>
+        </div>
+      </div>
+
+      <div class="garment-generation-error" id="previewError" hidden role="alert">
+        <span>GENERATION PAUSED</span>
+        <h3>本次生成未完成</h3>
+        <p id="previewErrorMessage"></p>
+        <button class="secondary-button" id="previewRetry" type="button">修改需求后重试</button>
+      </div>
+    </section>
   </div>
-  <h1>成衣效果，正在打版。</h1>
-  <p>该页面目前为功能占位{% if pattern_name %}，已选择图案 <strong>{{ pattern_name }}</strong>{% endif %}。后续将接入真实成衣预览能力。</p>
-  <a class="primary-button link-button" href="{{ url_for('index') }}#recognition">返回图案识别</a>
-</section>
+
+  <section class="garment-results" id="previewResults" hidden aria-labelledby="previewResultsTitle">
+    <div class="garment-results-heading">
+      <div>
+        <p class="eyebrow">03 · GENERATED LOOKS</p>
+        <h2 id="previewResultsTitle">成衣效果提案</h2>
+      </div>
+      <p id="previewResultsSummary"></p>
+    </div>
+    <div class="garment-result-grid" id="previewImageGrid"></div>
+    <p class="garment-result-note">效果图用于设计沟通和方向确认，最终版型、面料质感与工艺细节请结合实物打样评估。</p>
+  </section>
+</main>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ static_url('js/preview.js') }}" defer></script>
 {% endblock %}

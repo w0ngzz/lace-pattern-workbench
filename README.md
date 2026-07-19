@@ -43,6 +43,11 @@ docker compose --env-file .env -f docker-compose.prod.yml up -d
 
 `web` 与 `gateway` 必须挂载同一个 `lace-pattern-runtime` 卷。Cloudflare Tunnel 分别将网站域名指向 `web:5000`，将 Worker 域名指向 `gateway:8765`。
 
+Gateway 在同一个端口提供两个独立 Worker 通道：
+
+- 图案匹配 Worker：`wss://matcher.rbcc.302922.xyz/ws/matcher`，使用 `MATCHER_TOKEN`。
+- 成衣效果 Worker：`wss://matcher.rbcc.302922.xyz/ws/preview`，使用 `PREVIEW_WORKER_TOKEN`。
+
 ## 图案匹配流程
 
 1. 浏览器上传参考图，后端保存图片并创建 `requestId`。
@@ -52,6 +57,39 @@ docker compose --env-file .env -f docker-compose.prod.yml up -d
 5. Gateway 将结果写入共享运行目录，浏览器轮询结果接口并展示最多 5 个候选款式及相似度。
 6. 用户从候选款式中确认一款后可以进入成衣预览；只有全部不满意时才进入设计工单。
 7. Worker 在 120 秒内未返回时，页面提示超时，并允许用户创建设计工单。
+
+## 成衣效果流程
+
+1. 用户在 Top 5 候选中确认款式后进入成衣效果页。
+2. 页面提交素材 `imageIndex` 和中文设计需求，后端生成任务编号。
+3. Gateway 通过 `/ws/preview` 将 `preview_request` 转发给成衣 Worker。
+4. 页面轮询任务状态，最长等待 300 秒。
+5. Worker 返回 `preview_result` 后，页面展示其中有效的 HTTPS 成衣效果图链接。
+
+成衣 Worker 请求格式：
+
+```json
+{
+  "type": "preview_request",
+  "requestId": "32位小写十六进制任务编号",
+  "imageIndex": 1,
+  "customerInput": "设计一件优雅的蕾丝连衣裙"
+}
+```
+
+成衣 Worker 成功回包格式：
+
+```json
+{
+  "type": "preview_result",
+  "requestId": "与请求一致的任务编号",
+  "success": true,
+  "imageUrls": [
+    "https://example.com/look-01.png",
+    "https://example.com/look-02.png"
+  ]
+}
+```
 
 Worker 成功回包示例：
 
