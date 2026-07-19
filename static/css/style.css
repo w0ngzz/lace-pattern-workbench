@@ -36,12 +36,12 @@ a { color: inherit; }
   padding: 18px clamp(24px, 5vw, 76px);
   border-bottom: 1px solid var(--line);
 }
-.brand { display: flex; gap: 14px; align-items: center; text-decoration: none; }
-.brand-logo { display: block; width: 54px; height: 54px; flex: 0 0 auto; filter: drop-shadow(0 5px 10px rgba(72, 48, 34, 0.08)); }
-.brand-wordmark { padding-top: 1px; }
+.brand { display: flex; gap: 16px; align-items: center; text-decoration: none; }
+.brand-logo { display: block; width: 54px; height: 54px; flex: 0 0 auto; filter: drop-shadow(0 8px 14px rgba(31, 28, 25, 0.14)); }
+.brand-wordmark { padding: 2px 0 2px 15px; border-left: 1px solid rgba(31, 28, 25, 0.24); }
 .brand strong, .brand small { display: block; }
-.brand strong { font-family: var(--display); font-size: 22px; letter-spacing: 0.16em; }
-.brand small { margin-top: 3px; color: #6f685f; font: 8px/1.2 Georgia, serif; letter-spacing: 0.2em; }
+.brand strong { font-family: var(--display); font-size: 21px; letter-spacing: 0.18em; }
+.brand small { margin-top: 5px; color: #6f685f; font: 8px/1.2 Georgia, serif; letter-spacing: 0.22em; }
 .site-nav { display: flex; align-items: center; gap: clamp(20px, 3vw, 46px); }
 .site-nav a {
   position: relative;
