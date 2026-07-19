@@ -14,7 +14,6 @@ BASE_DIR = Path(__file__).resolve().parent
 HOST = os.getenv("MATCHER_GATEWAY_HOST", "0.0.0.0")
 PORT = int(os.getenv("MATCHER_GATEWAY_PORT", "8765"))
 MATCHER_TOKEN = os.getenv("MATCHER_TOKEN", "")
-PREVIEW_WORKER_TOKEN = os.getenv("PREVIEW_WORKER_TOKEN", "")
 
 STATE_FILE = BASE_DIR / ".runtime" / "matcher_status.json"
 REQUEST_DIR = BASE_DIR / ".runtime" / "match_requests"
@@ -45,36 +44,41 @@ def write_state(
     temporary_file.replace(state_file)
 
 
-async def keep_status_alive(
-    worker_id: str,
-    state_file: Path = STATE_FILE,
-) -> None:
+def write_worker_states(online: bool, worker_id: str | None = None) -> None:
+    for state_file in (STATE_FILE, PREVIEW_STATE_FILE):
+        write_state(online, worker_id, state_file)
+
+
+async def keep_status_alive(worker_id: str) -> None:
     while True:
-        write_state(True, worker_id, state_file)
+        write_worker_states(True, worker_id)
         await asyncio.sleep(5)
 
 
-async def forward_requests(connection, request_dir: Path, label: str) -> None:
-    request_dir.mkdir(parents=True, exist_ok=True)
+async def forward_requests(connection) -> None:
+    request_sources = (
+        (REQUEST_DIR, "matcher"),
+        (PREVIEW_REQUEST_DIR, "preview"),
+    )
+    for request_dir, _ in request_sources:
+        request_dir.mkdir(parents=True, exist_ok=True)
+
     while True:
-        for request_file in sorted(request_dir.glob("*.json")):
-            try:
-                payload = json.loads(request_file.read_text(encoding="utf-8"))
-            except (OSError, json.JSONDecodeError):
+        for request_dir, label in request_sources:
+            for request_file in sorted(request_dir.glob("*.json")):
+                try:
+                    payload = json.loads(request_file.read_text(encoding="utf-8"))
+                except (OSError, json.JSONDecodeError):
+                    request_file.unlink(missing_ok=True)
+                    continue
+
+                await connection.send(json.dumps(payload, ensure_ascii=False))
                 request_file.unlink(missing_ok=True)
-                continue
-
-            await connection.send(json.dumps(payload, ensure_ascii=False))
-            request_file.unlink(missing_ok=True)
-            print(
-                f"[gateway:{label}] forwarded request: {payload.get('requestId')}",
-                flush=True,
-            )
+                print(
+                    f"[gateway:{label}] forwarded request: {payload.get('requestId')}",
+                    flush=True,
+                )
         await asyncio.sleep(0.2)
-
-
-async def forward_match_requests(connection) -> None:
-    await forward_requests(connection, REQUEST_DIR, "matcher")
 
 
 def save_worker_result(
@@ -131,23 +135,13 @@ def save_preview_result(payload: dict, worker_id: str) -> str:
 def worker_channel(path: str) -> dict | None:
     if path == "/ws/matcher":
         return {
-            "label": "matcher",
+            "label": "worker",
             "token": MATCHER_TOKEN,
-            "defaultWorkerId": "matcher-worker",
-            "stateFile": STATE_FILE,
-            "requestDir": REQUEST_DIR,
-            "resultType": "match_result",
-            "saveResult": save_match_result,
-        }
-    if path == "/ws/preview":
-        return {
-            "label": "preview",
-            "token": PREVIEW_WORKER_TOKEN,
-            "defaultWorkerId": "preview-worker",
-            "stateFile": PREVIEW_STATE_FILE,
-            "requestDir": PREVIEW_REQUEST_DIR,
-            "resultType": "preview_result",
-            "saveResult": save_preview_result,
+            "defaultWorkerId": "lace-worker",
+            "resultHandlers": {
+                "match_result": save_match_result,
+                "preview_result": save_preview_result,
+            },
         }
     return None
 
@@ -167,11 +161,9 @@ async def handle_worker(connection) -> None:
     label = channel["label"]
     worker_id = connection.request.headers.get("X-Worker-ID", channel["defaultWorkerId"])
     print(f"[gateway:{label}] worker connected: {worker_id}", flush=True)
-    write_state(True, worker_id, channel["stateFile"])
-    heartbeat = asyncio.create_task(keep_status_alive(worker_id, channel["stateFile"]))
-    request_forwarder = asyncio.create_task(
-        forward_requests(connection, channel["requestDir"], label)
-    )
+    write_worker_states(True, worker_id)
+    heartbeat = asyncio.create_task(keep_status_alive(worker_id))
+    request_forwarder = asyncio.create_task(forward_requests(connection))
 
     try:
         async for raw_message in connection:
@@ -197,13 +189,14 @@ async def handle_worker(connection) -> None:
                 )
                 continue
 
-            if message_type != channel["resultType"]:
+            save_result = channel["resultHandlers"].get(message_type)
+            if save_result is None:
                 print(f"[gateway:{label}] ignored worker message: {message_type}", flush=True)
                 continue
 
             try:
-                request_id = channel["saveResult"](payload, worker_id)
-                print(f"[gateway:{label}] saved result: {request_id}", flush=True)
+                request_id = save_result(payload, worker_id)
+                print(f"[gateway:{message_type}] saved result: {request_id}", flush=True)
             except (OSError, TypeError, ValueError) as error:
                 print(f"[gateway:{label}] rejected result: {error}", flush=True)
     finally:
@@ -212,30 +205,21 @@ async def handle_worker(connection) -> None:
         for task in (heartbeat, request_forwarder):
             with suppress(asyncio.CancelledError):
                 await task
-        write_state(False, state_file=channel["stateFile"])
+        write_worker_states(False)
         print(f"[gateway:{label}] worker disconnected: {worker_id}", flush=True)
 
 
 async def run_gateway() -> None:
-    if not MATCHER_TOKEN and not PREVIEW_WORKER_TOKEN:
-        raise RuntimeError(
-            "MATCHER_TOKEN or PREVIEW_WORKER_TOKEN must be set before starting the gateway"
-        )
+    if not MATCHER_TOKEN:
+        raise RuntimeError("MATCHER_TOKEN must be set before starting the gateway")
 
-    write_state(False)
-    write_state(False, state_file=PREVIEW_STATE_FILE)
-    enabled_paths = []
-    if MATCHER_TOKEN:
-        enabled_paths.append("/ws/matcher")
-    if PREVIEW_WORKER_TOKEN:
-        enabled_paths.append("/ws/preview")
-    print(f"[gateway] listening on ws://{HOST}:{PORT} for {', '.join(enabled_paths)}", flush=True)
+    write_worker_states(False)
+    print(f"[gateway] listening on ws://{HOST}:{PORT}/ws/matcher", flush=True)
     try:
         async with serve(handle_worker, HOST, PORT, ping_interval=10, ping_timeout=10):
             await asyncio.Future()
     finally:
-        write_state(False)
-        write_state(False, state_file=PREVIEW_STATE_FILE)
+        write_worker_states(False)
 
 
 if __name__ == "__main__":

@@ -85,6 +85,17 @@ class MatchGatewayTests(unittest.TestCase):
         self.assertEqual(result["workerId"], "preview-worker-01")
         self.assertTrue(result["success"])
 
+    def test_single_worker_channel_handles_both_result_types(self):
+        channel = match_gateway.worker_channel("/ws/matcher")
+
+        self.assertIsNotNone(channel)
+        self.assertEqual(channel["token"], match_gateway.MATCHER_TOKEN)
+        self.assertEqual(
+            set(channel["resultHandlers"]),
+            {"match_result", "preview_result"},
+        )
+        self.assertIsNone(match_gateway.worker_channel("/ws/preview"))
+
 
 if __name__ == "__main__":
     unittest.main()

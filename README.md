@@ -43,10 +43,11 @@ docker compose --env-file .env -f docker-compose.prod.yml up -d
 
 `web` 与 `gateway` 必须挂载同一个 `lace-pattern-runtime` 卷。Cloudflare Tunnel 分别将网站域名指向 `web:5000`，将 Worker 域名指向 `gateway:8765`。
 
-Gateway 在同一个端口提供两个独立 Worker 通道：
+Gateway 通过一个统一 Worker 通道处理图案匹配和成衣效果任务：
 
-- 图案匹配 Worker：`wss://matcher.rbcc.302922.xyz/ws/matcher`，使用 `MATCHER_TOKEN`。
-- 成衣效果 Worker：`wss://matcher.rbcc.302922.xyz/ws/preview`，使用 `PREVIEW_WORKER_TOKEN`。
+- Worker 地址：`wss://matcher.rbcc.302922.xyz/ws/matcher`。
+- 图案匹配和成衣效果共用 `MATCHER_TOKEN`，不需要配置第二个 Token。
+- Worker 根据消息的 `type` 分别处理 `match_request` 和 `preview_request`。
 
 ## 图案匹配流程
 
@@ -62,7 +63,7 @@ Gateway 在同一个端口提供两个独立 Worker 通道：
 
 1. 用户在 Top 5 候选中确认款式后进入成衣效果页。
 2. 页面提交素材 `imageIndex` 和中文设计需求，后端生成任务编号。
-3. Gateway 通过 `/ws/preview` 将 `preview_request` 转发给成衣 Worker。
+3. Gateway 通过 `/ws/matcher` 将 `preview_request` 转发给同一个 Worker。
 4. 页面轮询任务状态，最长等待 300 秒。
 5. Worker 返回 `preview_result` 后，页面展示其中有效的 HTTPS 成衣效果图链接。
 

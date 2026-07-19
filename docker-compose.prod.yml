@@ -20,7 +20,6 @@ services:
     command: ["python", "match_gateway.py"]
     environment:
       MATCHER_TOKEN: ${MATCHER_TOKEN:?MATCHER_TOKEN must be set}
-      PREVIEW_WORKER_TOKEN: ${PREVIEW_WORKER_TOKEN:?PREVIEW_WORKER_TOKEN must be set}
     volumes:
       - lace-pattern-runtime:/app/.runtime
       - lace-pattern-uploads:/app/uploads:ro
